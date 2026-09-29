@@ -175,10 +175,7 @@ Router.add("presensi", async (root) => {
   const isTpq = profil.peran === "pengajar_tpq" || profil.peran === "admin";
 
   try {
-    const [kelasData, kelompokData] = await Promise.all([
-      Api.call("master.list", { entity: "kelas" }),
-      Api.call("master.list", { entity: "kelompok" })
-    ]);
+    const [kelasData, kelompokData] = await Promise.all([Ref.kelas(), Ref.kelompok()]);
 
     let daftarKelas = kelasData.items;
     let daftarKelompok = kelompokData.items;
@@ -302,8 +299,8 @@ Router.add("hafalan", async (root) => {
   const bisaInput = profil.peran === "admin" || profil.peran === "pengajar_tpq";
 
   try {
-    const res = await Api.call("santri.search", { tipe: "Mukim" });
-    const santriMukim = res.items.filter(s => s.status === "aktif");
+    const res = await Ref.santriSemua();
+    const santriMukim = res.items.filter(s => s.status === "aktif" && s.tipe === "Mukim");
 
     main.innerHTML = `
       <div class="card">
@@ -400,11 +397,7 @@ Router.add("santri", async (root, params) => {
   const isAdmin = profil.peran === "admin";
 
   try {
-    const [kelasData, kelompokData, kamarData] = await Promise.all([
-      Api.call("master.list", { entity: "kelas" }),
-      Api.call("master.list", { entity: "kelompok" }),
-      Api.call("master.list", { entity: "kamar" })
-    ]);
+    const [kelasData, kelompokData, kamarData] = await Promise.all([Ref.kelas(), Ref.kelompok(), Ref.kamar()]);
 
     main.innerHTML = `
       <div class="card">
@@ -514,11 +507,7 @@ async function renderSantriForm(root, editId) {
   root.innerHTML = Shell("santri", `<div class="loading">Memuat form...</div>`);
   const main = document.querySelector("main.content");
   try {
-    const [kelasData, kelompokData, kamarData] = await Promise.all([
-      Api.call("master.list", { entity: "kelas" }),
-      Api.call("master.list", { entity: "kelompok" }),
-      Api.call("master.list", { entity: "kamar" })
-    ]);
+    const [kelasData, kelompokData, kamarData] = await Promise.all([Ref.kelas(), Ref.kelompok(), Ref.kamar()]);
     let existing = null;
     if (editId) existing = (await Api.call("santri.detail", { id: editId })).santri;
 
@@ -582,6 +571,7 @@ async function renderSantriForm(root, editId) {
           payload.foto_nama = fotoFile.name;
         }
         const res = await Api.call("santri.save", payload);
+        RefCache.invalidate("santri_semua"); // data santri berubah, jangan pakai cache lama
         Router.go("santri", { id: res.item.id });
       } catch (err) {
         alert(err.message);
@@ -657,6 +647,7 @@ Router.add("master", async (root, params) => {
           tab.fields.forEach(f => payload[f.id] = document.getElementById("fm-" + f.id).value);
           try {
             await Api.call("master.save", { entity: tab.key, data: payload });
+            RefCache.invalidate(tab.key); // data master berubah, refresh cache lintas halaman
             muat();
           } catch (err) { alert(err.message); btn.disabled = false; }
         });
@@ -682,6 +673,7 @@ window.editMaster = async function (entity, id) {
   nilaiBaru.id = id;
   try {
     await Api.call("master.save", { entity, data: nilaiBaru });
+    RefCache.invalidate(entity); // data master berubah, refresh cache lintas halaman
     Router.render();
   } catch (err) { alert(err.message); }
 };
@@ -693,7 +685,7 @@ Router.add("prestasi", async (root) => {
   const main = document.querySelector("main.content");
   const isAdmin = Auth.boleh("admin");
   try {
-    const res = await Api.call("santri.search", {});
+    const res = await Ref.santriSemua();
     const santri = res.items.filter(s => s.status === "aktif");
 
     main.innerHTML = `
@@ -771,7 +763,7 @@ Router.add("laporan", async (root, params) => {
   root.innerHTML = Shell("laporan", `<div class="loading">Memuat...</div>`);
   const main = document.querySelector("main.content");
   try {
-    const res = await Api.call("santri.search", {});
+    const res = await Ref.santriSemua();
     const santri = res.items.filter(s => s.status === "aktif");
 
     main.innerHTML = `
@@ -838,9 +830,9 @@ Router.add("akun", async (root) => {
   async function muat() {
     try {
       const [akunData, kelasData, kelompokData] = await Promise.all([
-        Api.call("akun.list", {}),
-        Api.call("master.list", { entity: "kelas" }),
-        Api.call("master.list", { entity: "kelompok" })
+        Api.call("akun.list", {}), // daftar akun tidak di-cache (sensitif & sering berubah)
+        Ref.kelas(),
+        Ref.kelompok()
       ]);
 
       main.innerHTML = `

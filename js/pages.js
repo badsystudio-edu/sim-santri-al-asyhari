@@ -16,6 +16,14 @@ function navBolehTampil(item) {
   return Auth.boleh(...item.roles);
 }
 
+function avatarKecil(profil, ukuran) {
+  const inisial = profil && profil.nama ? profil.nama.trim().charAt(0).toUpperCase() : "?";
+  if (profil && profil.url_foto) {
+    return `<img src="${profil.url_foto}" alt="Foto" style="width:${ukuran}px;height:${ukuran}px;border-radius:50%;object-fit:cover;background:#fff;" onerror="this.outerHTML='<div style=&quot;width:${ukuran}px;height:${ukuran}px;border-radius:50%;background:var(--emerald-deep);color:#fff;display:flex;align-items:center;justify-content:center;font-size:${Math.round(ukuran*0.4)}px;font-weight:700;&quot;>${inisial}</div>'">`;
+  }
+  return `<div style="width:${ukuran}px;height:${ukuran}px;border-radius:50%;background:var(--emerald-deep);color:#fff;display:flex;align-items:center;justify-content:center;font-size:${Math.round(ukuran * 0.4)}px;font-weight:700;">${inisial}</div>`;
+}
+
 function Shell(activeKey, innerHtml) {
   const profil = Auth.getProfil();
   const navList = NAV_ITEMS.filter(navBolehTampil);
@@ -25,7 +33,7 @@ function Shell(activeKey, innerHtml) {
     <div class="layout-desktop">
       <nav class="side-nav">
         <div style="display:flex;align-items:center;gap:8px;padding:8px 12px 18px;">
-          <div style="width:34px;height:34px;border-radius:50%;background:var(--emerald-deep);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;">AA</div>
+          ${avatarKecil(profil, 34)}
           <div>
             <div style="font-weight:700;font-size:13px;">SIM Santri</div>
             <div style="font-size:10px;color:var(--text-muted);">Al Asyhari</div>
@@ -33,13 +41,19 @@ function Shell(activeKey, innerHtml) {
         </div>
         ${navList.map(n => `<a href="#/${n.key}" class="${n.key === activeKey ? "active" : ""}">${n.icon} ${n.label}</a>`).join("")}
         <div style="margin-top:auto;padding:12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border-subtle);">
-          <div style="font-weight:700;color:var(--text-main);">${profil ? profil.nama : ""}</div>
-          <div>${labelPeran(profil ? profil.peran : "")}</div>
+          <div class="flex gap-1" style="align-items:center;margin-bottom:6px;">
+            ${avatarKecil(profil, 28)}
+            <div>
+              <div style="font-weight:700;color:var(--text-main);">${profil ? profil.nama : ""}</div>
+              <div style="font-size:11px;">${labelPeran(profil ? profil.peran : "")}${profil && profil.mapel ? " &middot; " + profil.mapel : ""}</div>
+            </div>
+          </div>
           <button class="btn btn-secondary btn-sm mt-1" style="width:100%;" onclick="logoutSekarang()">Keluar</button>
         </div>
       </nav>
       <div style="flex:1;">
         <header class="app-header">
+          ${avatarKecil(profil, 30)}
           <div class="title">${judulHalaman(activeKey)}</div>
           <div class="spacer"></div>
           <button class="btn-icon" onclick="logoutSekarang()" title="Keluar">⏻</button>
@@ -52,6 +66,7 @@ function Shell(activeKey, innerHtml) {
     </nav>
   `;
 }
+
 
 function judulHalaman(key) {
   const map = {
@@ -345,10 +360,10 @@ Router.add("hafalan", async (root) => {
           </div>` : ""}
           <div class="card">
             <h3>Riwayat Hafalan</h3>
-            ${data.items.length === 0 ? `<div class="empty-state">Belum ada riwayat setoran.</div>` : `
+            ${(data.items || []).length === 0 ? `<div class="empty-state">Belum ada riwayat setoran.</div>` : `
             <div class="table-wrap"><table class="data-table">
               <tr><th>Tanggal</th><th>Juz</th><th>Surah &amp; Ayat</th><th>Jenis</th><th>Catatan</th></tr>
-              ${data.items.map(h => `<tr><td>${h.tanggal}</td><td><span class="chip chip-juz">Juz ${h.juz}</span></td><td>${h.surah} : ${h.ayat_awal}-${h.ayat_akhir}</td><td>${h.jenis_setoran}</td><td>${h.catatan || "-"}</td></tr>`).join("")}
+              ${(data.items || []).map(h => `<tr><td>${h.tanggal}</td><td><span class="chip chip-juz">Juz ${h.juz}</span></td><td>${h.surah} : ${h.ayat_awal}-${h.ayat_akhir}</td><td>${h.jenis_setoran}</td><td>${h.catatan || "-"}</td></tr>`).join("")}
             </table></div>`}
           </div>
         `;
@@ -431,7 +446,7 @@ Router.add("santri", async (root, params) => {
           id_kamar: document.getElementById("s-kamar").value,
           tipe: document.getElementById("s-tipe").value
         });
-        const items = data.items.filter(s => s.status === "aktif");
+        const items = (data.items || []).filter(s => s.status === "aktif");
         if (items.length === 0) { hasil.innerHTML = `<div class="empty-state">Tidak ada santri ditemukan.</div>`; return; }
         hasil.innerHTML = items.map(s => `
           <div class="card" style="cursor:pointer;" onclick="Router.go('santri', {id:'${s.id}'})">
@@ -620,6 +635,7 @@ Router.add("master", async (root, params) => {
     listEl.innerHTML = `<div class="loading">Memuat data...</div>`;
     try {
       const data = await Api.call("master.list", { entity: tab.key });
+      data.items = data.items || [];
       listEl.innerHTML = `
         ${isAdmin ? `<div class="card"><h3>Tambah ${tab.label}</h3>
           <form id="form-master">
@@ -629,10 +645,10 @@ Router.add("master", async (root, params) => {
         </div>` : ""}
         <div class="card">
           <h3>Daftar ${tab.label}</h3>
-          ${data.items.length === 0 ? `<div class="empty-state">Belum ada data.</div>` : `
+          ${(data.items || []).length === 0 ? `<div class="empty-state">Belum ada data.</div>` : `
           <div class="table-wrap"><table class="data-table">
             <tr>${tab.fields.map(f => `<th>${f.label}</th>`).join("")}${isAdmin ? "<th>Aksi</th>" : ""}</tr>
-            ${data.items.map(item => `<tr>${tab.fields.map(f => `<td>${item[f.id] || "-"}</td>`).join("")}${isAdmin ? `<td><button class="btn btn-secondary btn-sm" onclick='editMaster("${tab.key}","${item.id}")'>Edit</button></td>` : ""}</tr>`).join("")}
+            ${(data.items || []).map(item => `<tr>${tab.fields.map(f => `<td>${item[f.id] || "-"}</td>`).join("")}${isAdmin ? `<td><button class="btn btn-secondary btn-sm" onclick='editMaster("${tab.key}","${item.id}")'>Edit</button></td>` : ""}</tr>`).join("")}
           </table></div>`}
         </div>
       `;
@@ -662,7 +678,7 @@ Router.add("master", async (root, params) => {
 window.editMaster = async function (entity, id) {
   const tab = MASTER_TABS.find(t => t.key === entity);
   const data = await Api.call("master.list", { entity });
-  const item = data.items.find(i => i.id === id);
+  const item = (data.items || []).find(i => i.id === id);
   if (!item) return;
   const nilaiBaru = {};
   for (const f of tab.fields) {
@@ -721,8 +737,8 @@ Router.add("prestasi", async (root) => {
           </div>` : ""}
           <div class="card">
             <h3>Riwayat Prestasi</h3>
-            ${data.items.length === 0 ? `<div class="empty-state">Belum ada prestasi tercatat.</div>` :
-              data.items.map(p => `<div class="mb-1" style="border-bottom:1px solid var(--border-subtle);padding-bottom:8px;">
+            ${(data.items || []).length === 0 ? `<div class="empty-state">Belum ada prestasi tercatat.</div>` :
+              (data.items || []).map(p => `<div class="mb-1" style="border-bottom:1px solid var(--border-subtle);padding-bottom:8px;">
                 <b>${p.nama_prestasi}</b> &mdash; ${p.tingkat}<br>
                 <span class="text-muted text-sm">${p.tanggal} &bull; ${p.keterangan || "-"}</span>
                 ${p.url_berkas ? `<br><a href="${p.url_berkas}" target="_blank" class="text-sm">Lihat berkas &rarr;</a>` : ""}
@@ -823,53 +839,108 @@ Router.add("laporan", async (root, params) => {
 
 // ======================= AKUN (khusus admin) =======================
 
-Router.add("akun", async (root) => {
+function checkboxGroup(namaId, daftar, labelField, selectedCsv) {
+  const selected = (selectedCsv || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (daftar.length === 0) return `<div class="text-muted text-sm">Belum ada data. Tambahkan dulu di menu Data Master.</div>`;
+  return `<div style="max-height:160px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:var(--radius);padding:8px;">
+    ${daftar.map(item => `
+      <label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-weight:400;font-size:13px;cursor:pointer;">
+        <input type="checkbox" class="${namaId}-item" value="${item.id}" ${selected.indexOf(item.id) !== -1 ? "checked" : ""}>
+        ${item[labelField]}
+      </label>
+    `).join("")}
+  </div>`;
+}
+
+function ambilChecklist(namaId) {
+  return Array.from(document.querySelectorAll(`.${namaId}-item:checked`)).map(el => el.value).join(",");
+}
+
+Router.add("akun", async (root, params) => {
   root.innerHTML = Shell("akun", `<div class="loading">Memuat...</div>`);
   const main = document.querySelector("main.content");
+  const editingId = params.edit || null;
 
   async function muat() {
     try {
-      const [akunData, kelasData, kelompokData] = await Promise.all([
+      const [akunRes, kelasRes, kelompokRes] = await Promise.all([
         Api.call("akun.list", {}), // daftar akun tidak di-cache (sensitif & sering berubah)
         Ref.kelas(),
         Ref.kelompok()
       ]);
+      const akunList = akunRes.items || [];
+      const daftarKelas = kelasRes.items || [];
+      const daftarKelompok = kelompokRes.items || [];
+      const existing = editingId ? akunList.find(a => a.id === editingId) : null;
+      if (editingId && !existing) { Router.go("akun"); return; }
+
+      const v = (f, d) => existing ? (existing[f] || d || "") : (d || "");
 
       main.innerHTML = `
         <div class="card">
-          <h3>Buat Akun Baru</h3>
+          <h3>${existing ? "Edit Akun: " + existing.nama : "Buat Akun Baru"}</h3>
           <form id="form-akun">
+            <div class="field" style="text-align:center;">
+              <div id="ak-foto-preview" style="margin-bottom:8px;">${existing && existing.url_foto ? `<img src="${existing.url_foto}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;">` : ""}</div>
+              <label>Foto (opsional)</label>
+              <input type="file" id="ak-foto" accept="image/*">
+            </div>
             <div class="grid-2">
-              <div class="field"><label>Nama Lengkap</label><input type="text" id="ak-nama" required></div>
-              <div class="field"><label>Username</label><input type="text" id="ak-username" required></div>
+              <div class="field"><label>Nama Lengkap</label><input type="text" id="ak-nama" value="${v("nama")}" required></div>
+              <div class="field"><label>Username</label><input type="text" id="ak-username" value="${v("username")}" required></div>
             </div>
             <div class="grid-2">
               <div class="field"><label>Peran</label>
                 <select id="ak-peran">
-                  <option value="admin">Admin / Tim Kantor</option>
-                  <option value="guru_mapel">Guru Mata Pelajaran</option>
-                  <option value="pengajar_tpq">Pengajar TPQ / Tahfidz</option>
-                  <option value="pimpinan">Pimpinan</option>
+                  <option value="admin" ${v("peran") === "admin" ? "selected" : ""}>Admin / Tim Kantor</option>
+                  <option value="guru_mapel" ${v("peran") === "guru_mapel" ? "selected" : ""}>Guru Mata Pelajaran</option>
+                  <option value="pengajar_tpq" ${v("peran") === "pengajar_tpq" ? "selected" : ""}>Pengajar TPQ / Tahfidz</option>
+                  <option value="pimpinan" ${v("peran") === "pimpinan" ? "selected" : ""}>Pimpinan</option>
                 </select>
               </div>
-              <div class="field"><label>Bidang (opsional)</label><input type="text" id="ak-bidang"></div>
+              <div class="field"><label>Mata Pelajaran / Bidang (opsional)</label><input type="text" id="ak-mapel" value="${v("mapel") || v("bidang")}" placeholder="mis. Matematika, Tahfidz"></div>
             </div>
-            <div class="field" id="ak-kelas-wrap" style="display:none;"><label>Kelas yang Diampu</label><select id="ak-kelas">${kelasData.items.map(k => `<option value="${k.id}">${k.nama_kelas}</option>`).join("")}</select></div>
-            <div class="field" id="ak-kelompok-wrap" style="display:none;"><label>Kelompok TPQ yang Diampu</label><select id="ak-kelompok">${kelompokData.items.map(k => `<option value="${k.id}">${k.nama_kelompok}</option>`).join("")}</select></div>
-            <button class="btn btn-primary btn-block" type="submit">Buat Akun</button>
+            <div class="field" id="ak-kelas-wrap" style="display:none;">
+              <label>Kelas yang Diampu (bisa pilih lebih dari satu)</label>
+              ${checkboxGroup("ak-kelas", daftarKelas, "nama_kelas", v("kelas_diampu"))}
+            </div>
+            <div class="field" id="ak-kelompok-wrap" style="display:none;">
+              <label>Kelompok TPQ yang Diampu (bisa pilih lebih dari satu)</label>
+              ${checkboxGroup("ak-kelompok", daftarKelompok, "nama_kelompok", v("kelompok_diampu"))}
+            </div>
+            <div class="field" id="ak-wali-wrap" style="display:none;">
+              <label>Wali Kelas dari (opsional)</label>
+              <select id="ak-wali-kelas">
+                <option value="">-- Bukan wali kelas --</option>
+                ${daftarKelas.map(k => `<option value="${k.id}" ${v("wali_kelas_id") === k.id ? "selected" : ""}>${k.nama_kelas}</option>`).join("")}
+              </select>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">${existing ? "Simpan Perubahan" : "Buat Akun"}</button>
+            ${existing ? `<button type="button" class="btn btn-secondary btn-block mt-1" onclick="Router.go('akun')">Batal Edit</button>` : ""}
           </form>
           <div id="akun-hasil" class="mt-1"></div>
         </div>
+
+        ${existing ? `
+        <div class="card">
+          <h3>Ubah Sandi: ${existing.nama}</h3>
+          <div class="field"><label>Sandi Baru (kosongkan untuk sandi acak otomatis)</label><input type="text" id="ak-sandi-baru" placeholder="Minimal 6 karakter, atau kosongkan"></div>
+          <button class="btn btn-accent btn-block" id="btn-ubah-sandi">Terapkan Sandi Baru</button>
+          <div id="sandi-hasil" class="mt-1"></div>
+        </div>` : ""}
+
         <div class="card">
           <h3>Daftar Akun</h3>
           <div class="table-wrap"><table class="data-table">
-            <tr><th>Nama</th><th>Username</th><th>Peran</th><th>Status</th><th>Aksi</th></tr>
-            ${akunData.items.map(a => `<tr>
-              <td>${a.nama}</td><td>${a.username}</td><td>${labelPeran(a.peran)}</td>
+            <tr><th></th><th>Nama</th><th>Username</th><th>Peran</th><th>Status</th><th>Aksi</th></tr>
+            ${akunList.map(a => `<tr>
+              <td>${avatarKecil({ nama: a.nama, url_foto: a.url_foto }, 30)}</td>
+              <td>${a.nama}${a.mapel ? `<div class="text-muted text-sm">${a.mapel}</div>` : ""}</td>
+              <td>${a.username}</td><td>${labelPeran(a.peran)}</td>
               <td>${a.status === "aktif" ? `<span class="chip chip-hadir">Aktif</span>` : `<span class="chip chip-nonaktif">Nonaktif</span>`}</td>
               <td style="white-space:nowrap;">
+                <button class="btn btn-secondary btn-sm" onclick="Router.go('akun',{edit:'${a.id}'})">Edit</button>
                 <button class="btn btn-secondary btn-sm" onclick='toggleAkun("${a.id}")'>${a.status === "aktif" ? "Nonaktifkan" : "Aktifkan"}</button>
-                <button class="btn btn-secondary btn-sm" onclick='resetSandiAkun("${a.id}")'>Reset Sandi</button>
               </td>
             </tr>`).join("")}
           </table></div>
@@ -880,32 +951,65 @@ Router.add("akun", async (root) => {
       function toggleRefFields() {
         document.getElementById("ak-kelas-wrap").style.display = peranSelect.value === "guru_mapel" ? "block" : "none";
         document.getElementById("ak-kelompok-wrap").style.display = peranSelect.value === "pengajar_tpq" ? "block" : "none";
+        document.getElementById("ak-wali-wrap").style.display = peranSelect.value === "guru_mapel" ? "block" : "none";
       }
       peranSelect.addEventListener("change", toggleRefFields);
       toggleRefFields();
 
       document.getElementById("form-akun").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const btn = e.target.querySelector("button");
-        btn.disabled = true; btn.textContent = "Membuat...";
+        const btn = e.target.querySelector("button[type=submit]");
+        btn.disabled = true; btn.textContent = "Menyimpan...";
         try {
-          const data = await Api.call("akun.create", {
-            data: {
-              nama: document.getElementById("ak-nama").value,
-              username: document.getElementById("ak-username").value,
-              peran: peranSelect.value,
-              bidang: document.getElementById("ak-bidang").value,
-              kelas_diampu: peranSelect.value === "guru_mapel" ? document.getElementById("ak-kelas").value : "",
-              kelompok_diampu: peranSelect.value === "pengajar_tpq" ? document.getElementById("ak-kelompok").value : ""
-            }
-          });
-          document.getElementById("akun-hasil").innerHTML = `<div class="alert alert-success">Akun dibuat. Username: <b>${data.username}</b>, Sandi awal: <b>${data.sandi_awal}</b>. Catat sandi ini sekarang.</div>`;
-          muat();
+          const dataAkun = {
+            nama: document.getElementById("ak-nama").value,
+            username: document.getElementById("ak-username").value,
+            peran: peranSelect.value,
+            mapel: document.getElementById("ak-mapel").value,
+            bidang: document.getElementById("ak-mapel").value,
+            kelas_diampu: peranSelect.value === "guru_mapel" ? ambilChecklist("ak-kelas") : "",
+            kelompok_diampu: peranSelect.value === "pengajar_tpq" ? ambilChecklist("ak-kelompok") : "",
+            wali_kelas_id: peranSelect.value === "guru_mapel" ? document.getElementById("ak-wali-kelas").value : ""
+          };
+          const payload = { data: dataAkun };
+          const fotoFile = document.getElementById("ak-foto").files[0];
+          if (fotoFile) { payload.foto_base64 = await fileToBase64(fotoFile); payload.foto_nama = fotoFile.name; }
+
+          if (existing) {
+            dataAkun.id = existing.id;
+            await Api.call("akun.update", payload);
+            document.getElementById("akun-hasil").innerHTML = `<div class="alert alert-success">Perubahan disimpan.</div>`;
+            muat();
+          } else {
+            const data = await Api.call("akun.create", payload);
+            document.getElementById("akun-hasil").innerHTML = `<div class="alert alert-success">Akun dibuat. Username: <b>${data.username}</b>, Sandi awal: <b>${data.sandi_awal}</b>. Catat sandi ini sekarang.</div>`;
+            muat();
+          }
         } catch (err) {
           alert(err.message);
-          btn.disabled = false; btn.textContent = "Buat Akun";
+          btn.disabled = false; btn.textContent = existing ? "Simpan Perubahan" : "Buat Akun";
         }
       });
+
+      const btnUbahSandi = document.getElementById("btn-ubah-sandi");
+      if (btnUbahSandi) {
+        btnUbahSandi.addEventListener("click", async () => {
+          const sandiInput = document.getElementById("ak-sandi-baru").value.trim();
+          if (sandiInput && sandiInput.length < 6) {
+            document.getElementById("sandi-hasil").innerHTML = `<div class="alert alert-error">Sandi minimal 6 karakter, atau kosongkan untuk sandi acak.</div>`;
+            return;
+          }
+          btnUbahSandi.disabled = true; btnUbahSandi.textContent = "Memproses...";
+          try {
+            const data = await Api.call("akun.resetPassword", { id: existing.id, sandi_baru: sandiInput || undefined });
+            document.getElementById("sandi-hasil").innerHTML = `<div class="alert alert-success">Sandi baru: <b>${data.sandi_baru}</b>. Catat sekarang, sampaikan ke yang bersangkutan.</div>`;
+          } catch (err) {
+            document.getElementById("sandi-hasil").innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+          } finally {
+            btnUbahSandi.disabled = false; btnUbahSandi.textContent = "Terapkan Sandi Baru";
+          }
+        });
+      }
     } catch (err) { tampilkanGalat(main, err); }
   }
   muat();
@@ -915,12 +1019,4 @@ Router.add("akun", async (root) => {
 window.toggleAkun = async function (id) {
   if (!confirm("Ubah status akun ini?")) return;
   try { await Api.call("akun.toggle", { id }); window.__muatAkun(); } catch (err) { alert(err.message); }
-};
-
-window.resetSandiAkun = async function (id) {
-  if (!confirm("Reset sandi akun ini?")) return;
-  try {
-    const data = await Api.call("akun.resetPassword", { id });
-    alert("Sandi baru: " + data.sandi_baru);
-  } catch (err) { alert(err.message); }
 };

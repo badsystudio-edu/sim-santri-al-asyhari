@@ -27,10 +27,18 @@ const RefCache = {
 };
 
 // Pembungkus siap pakai untuk data referensi yang paling sering dipakai lintas halaman.
+// Menjamin bentuk { items: [...] } walau respons sukses tapi bentuknya tak terduga.
+// Kegagalan jaringan/server TETAP dilempar sebagai error (tidak di-cache), supaya
+// pesan galat asli tetap tampil ke pengguna alih-alih diam-diam menyembunyikannya.
+async function amanItems(fetcher) {
+  const res = await fetcher();
+  return { items: (res && Array.isArray(res.items)) ? res.items : [] };
+}
+
 const Ref = {
-  kelas: () => RefCache.get("kelas", () => Api.call("master.list", { entity: "kelas" })),
-  kelompok: () => RefCache.get("kelompok", () => Api.call("master.list", { entity: "kelompok" })),
-  kamar: () => RefCache.get("kamar", () => Api.call("master.list", { entity: "kamar" })),
-  wali: () => RefCache.get("wali", () => Api.call("master.list", { entity: "wali" })),
-  santriSemua: () => RefCache.get("santri_semua", () => Api.call("santri.search", {}), 60 * 1000)
+  kelas: () => RefCache.get("kelas", () => amanItems(() => Api.call("master.list", { entity: "kelas" }))),
+  kelompok: () => RefCache.get("kelompok", () => amanItems(() => Api.call("master.list", { entity: "kelompok" }))),
+  kamar: () => RefCache.get("kamar", () => amanItems(() => Api.call("master.list", { entity: "kamar" }))),
+  wali: () => RefCache.get("wali", () => amanItems(() => Api.call("master.list", { entity: "wali" }))),
+  santriSemua: () => RefCache.get("santri_semua", () => amanItems(() => Api.call("santri.search", {})), 60 * 1000)
 };

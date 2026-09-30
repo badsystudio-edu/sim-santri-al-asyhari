@@ -56,7 +56,7 @@ function Shell(activeKey, innerHtml) {
           ${avatarKecil(profil, 30)}
           <div class="title">${judulHalaman(activeKey)}</div>
           <div class="spacer"></div>
-          <button class="btn-icon" onclick="logoutSekarang()" title="Keluar">⏻</button>
+          <button class="btn-icon" onclick="logoutSekarang()" title="Keluar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></button>
         </header>
         <main class="content">${innerHtml}</main>
       </div>
@@ -611,6 +611,7 @@ async function renderSantriForm(root, editId) {
         const res = await Api.call("santri.save", payload);
         RefCache.invalidate("santri_semua"); // data santri berubah, jangan pakai cache lama
         RefCache.invalidate("dashboard");
+        if (res.peringatan) alert(res.peringatan); // foto gagal tersimpan, tapi data lain aman
         Router.go("santri", { id: res.item.id });
       } catch (err) {
         alert(err.message);
@@ -787,7 +788,8 @@ Router.add("prestasi", async (root) => {
               };
               const file = document.getElementById("pr-file").files[0];
               if (file) { payload.file_base64 = await fileToBase64(file); payload.file_nama = file.name; }
-              await Api.call("prestasi.save", payload);
+              const hasil = await Api.call("prestasi.save", payload);
+              if (hasil.peringatan) alert(hasil.peringatan); // berkas gagal tersimpan, tapi data lain aman
               muat();
             } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "Simpan Prestasi"; }
           });
@@ -905,7 +907,7 @@ Router.add("akun", async (root, params) => {
           <h3>${existing ? "Edit Akun: " + existing.nama : "Buat Akun Baru"}</h3>
           <form id="form-akun">
             <div class="field" style="text-align:center;">
-              <div id="ak-foto-preview" style="margin-bottom:8px;">${existing && existing.url_foto ? `<img src="${existing.url_foto}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;">` : ""}</div>
+              <div id="ak-foto-preview" style="margin-bottom:8px;">${existing && existing.url_foto ? avatarKecil({ nama: existing.nama, url_foto: existing.url_foto }, 72) : ""}</div>
               <label>Foto (opsional)</label>
               <input type="file" id="ak-foto" accept="image/*">
             </div>
@@ -1001,12 +1003,17 @@ Router.add("akun", async (root, params) => {
 
           if (existing) {
             dataAkun.id = existing.id;
-            await Api.call("akun.update", payload);
-            document.getElementById("akun-hasil").innerHTML = `<div class="alert alert-success">Perubahan disimpan.</div>`;
+            const hasilUpdate = await Api.call("akun.update", payload);
+            document.getElementById("akun-hasil").innerHTML = hasilUpdate.peringatan
+              ? `<div class="alert alert-error">${hasilUpdate.peringatan}</div>`
+              : `<div class="alert alert-success">Perubahan disimpan.</div>`;
             muat();
           } else {
             const data = await Api.call("akun.create", payload);
-            document.getElementById("akun-hasil").innerHTML = `<div class="alert alert-success">Akun dibuat. Username: <b>${data.username}</b>, Sandi awal: <b>${data.sandi_awal}</b>. Catat sandi ini sekarang.</div>`;
+            document.getElementById("akun-hasil").innerHTML = `
+              <div class="alert alert-success">Akun dibuat. Username: <b>${data.username}</b>, Sandi awal: <b>${data.sandi_awal}</b>. Catat sandi ini sekarang.</div>
+              ${data.peringatan ? `<div class="alert alert-error mt-1">${data.peringatan}</div>` : ""}
+            `;
             muat();
           }
         } catch (err) {

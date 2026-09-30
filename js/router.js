@@ -33,6 +33,7 @@ const Router = {
   },
   init() {
     window.addEventListener("hashchange", () => this.render());
+    if (Auth.isLoggedIn()) prefetchSemua(); // panaskan cache sebelum pengguna sempat mengklik menu
     this.render();
   }
 };

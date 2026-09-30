@@ -78,7 +78,7 @@ function judulHalaman(key) {
 }
 
 function labelPeran(p) {
-  const map = { admin: "Admin / Tim Kantor", guru_mapel: "Guru Mata Pelajaran", pengajar_tpq: "Pengajar TPQ / Tahfidz", pimpinan: "Pimpinan" };
+  const map = { admin: "Admin / Tim Kantor", guru_mapel: "Guru Mata Pelajaran", pengajar_tpq: "Pengajar PTQ / Tahfidz", pimpinan: "Pimpinan" };
   return map[p] || p;
 }
 
@@ -138,6 +138,7 @@ Router.add("login", async (root) => {
         password: document.getElementById("login-password").value
       });
       Auth.setSesi(data.token, data.profil);
+      prefetchSemua(); // langsung panaskan cache begitu login berhasil
       Router.go("dashboard");
     } catch (err) {
       alertBox.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
@@ -149,11 +150,19 @@ Router.add("login", async (root) => {
 // ======================= DASHBOARD =======================
 
 Router.add("dashboard", async (root) => {
-  root.innerHTML = Shell("dashboard", `<div class="loading">Memuat ringkasan...</div>`);
+  const cacheLama = RefCache.peek("dashboard"); // tampil instan dulu jika ada, tanpa menunggu server
+  root.innerHTML = Shell("dashboard", cacheLama ? renderDashboard(cacheLama) : `<div class="loading">Memuat ringkasan...</div>`);
   const main = document.querySelector("main.content");
   try {
-    const d = await Api.call("dashboard", {});
-    main.innerHTML = `
+    const d = await Ref.dashboard();
+    main.innerHTML = renderDashboard(d);
+  } catch (err) {
+    if (!cacheLama) tampilkanGalat(main, err); // sudah ada tampilan dari cache, jangan timpa dengan galat
+  }
+});
+
+function renderDashboard(d) {
+  return `
       <div class="stat-grid mb-1">
         <div class="stat-card"><div class="num">${d.total_santri}</div><div class="label">Total Santri Aktif</div></div>
         <div class="stat-card"><div class="num">${d.total_mukim}</div><div class="label">Santri Mukim</div></div>
@@ -174,11 +183,8 @@ Router.add("dashboard", async (root) => {
         <div style="font-size:28px;font-weight:700;color:var(--gold);">Juz ${d.rata_rata_progres_juz}</div>
         <div class="text-muted text-sm">Rata-rata capaian juz tertinggi santri yang sudah tercatat</div>
       </div>
-    `;
-  } catch (err) {
-    tampilkanGalat(main, err);
-  }
-});
+  `;
+}
 
 // ======================= PRESENSI =======================
 
@@ -210,13 +216,19 @@ Router.add("presensi", async (root) => {
           <label>Jenis</label>
           <select id="p-jenis">
             ${isSekolah ? `<option value="sekolah">Sekolah Pagi</option>` : ""}
-            ${isTpq ? `<option value="tpq">TPQ / Tahfidz</option>` : ""}
+            ${isTpq ? `<option value="tpq">PTQ (Pendidikan Tahfidzul Qur'an)</option>` : ""}
           </select>
         </div>
         <div class="field" id="p-ref-wrap"></div>
-        <div class="field">
-          <label>Tanggal</label>
-          <input type="date" id="p-tanggal" value="${new Date().toISOString().slice(0, 10)}">
+        <div class="grid-2">
+          <div class="field">
+            <label>Tanggal</label>
+            <input type="date" id="p-tanggal" value="${new Date().toISOString().slice(0, 10)}">
+          </div>
+          <div class="field">
+            <label>Mata Pelajaran / Materi</label>
+            <input type="text" id="p-mapel" value="${profil.mapel || ""}" placeholder="mis. Matematika, Tahsin">
+          </div>
         </div>
         <button class="btn btn-primary btn-block" id="btn-muat-presensi">Muat Daftar Santri</button>
       </div>
@@ -229,7 +241,7 @@ Router.add("presensi", async (root) => {
       if (jenis === "sekolah") {
         wrap.innerHTML = `<label>Kelas</label><select id="p-ref">${daftarKelas.map(k => `<option value="${k.id}">${k.nama_kelas}</option>`).join("")}</select>`;
       } else {
-        wrap.innerHTML = `<label>Kelompok TPQ</label><select id="p-ref">${daftarKelompok.map(k => `<option value="${k.id}">${k.nama_kelompok}</option>`).join("")}</select>`;
+        wrap.innerHTML = `<label>Kelompok PTQ</label><select id="p-ref">${daftarKelompok.map(k => `<option value="${k.id}">${k.nama_kelompok}</option>`).join("")}</select>`;
       }
     }
     document.getElementById("p-jenis").addEventListener("change", renderRefOptions);
@@ -246,6 +258,7 @@ Router.add("presensi", async (root) => {
       listEl.innerHTML = `<div class="loading">Memuat daftar santri...</div>`;
       try {
         const data = await Api.call("presensi.get", { jenis, ref_id: refId, tanggal });
+        if (data.mapel_tersimpan) document.getElementById("p-mapel").value = data.mapel_tersimpan;
         if (data.daftar.length === 0) {
           listEl.innerHTML = `<div class="empty-state">Belum ada santri pada kelas/kelompok ini.</div>`;
           return;
@@ -288,7 +301,9 @@ Router.add("presensi", async (root) => {
             return { id_santri: row.dataset.santri, status: active ? active.dataset.status : "Hadir", keterangan: "" };
           });
           try {
-            await Api.call("presensi.save", { jenis, ref_id: refId, tanggal, items });
+            const mapel = document.getElementById("p-mapel").value;
+            await Api.call("presensi.save", { jenis, ref_id: refId, tanggal, items, mapel });
+            RefCache.invalidate("dashboard");
             btn.textContent = "Tersimpan ✓";
             setTimeout(() => { btn.disabled = false; btn.textContent = "Simpan Presensi"; }, 1500);
           } catch (err) {
@@ -343,8 +358,15 @@ Router.add("hafalan", async (root) => {
             <h3>Catat Setoran Baru</h3>
             <form id="form-hafalan">
               <div class="grid-2">
-                <div class="field"><label>Juz</label><input type="number" id="hf-juz" min="1" max="30" required></div>
-                <div class="field"><label>Surah</label><input type="text" id="hf-surah" required></div>
+                <div class="field"><label>Juz</label>
+                  <select id="hf-juz" required>${Array.from({ length: 30 }, (_, i) => i + 1).map(j => `<option value="${j}">Juz ${j}</option>`).join("")}</select>
+                </div>
+                <div class="field"><label>Surah</label>
+                  <select id="hf-surah" required>
+                    <option value="">-- Pilih Surah --</option>
+                    ${QURAN_SURAH.map(s => `<option value="${s.no}. ${s.latin} (${s.arab})">${s.no}. ${s.latin} — ${s.arab}</option>`).join("")}
+                  </select>
+                </div>
               </div>
               <div class="grid-2">
                 <div class="field"><label>Ayat Awal</label><input type="number" id="hf-awal" min="1" required></div>
@@ -384,6 +406,7 @@ Router.add("hafalan", async (root) => {
                 jenis_setoran: document.getElementById("hf-jenis").value,
                 catatan: document.getElementById("hf-catatan").value
               });
+              RefCache.invalidate("dashboard");
               muatHafalan();
             } catch (err) {
               alert(err.message);
@@ -423,7 +446,7 @@ Router.add("santri", async (root, params) => {
         <div class="field"><input type="text" id="s-cari" placeholder="Cari nama atau NIS..."></div>
         <div class="grid-2">
           <select id="s-kelas"><option value="">Semua Kelas</option>${kelasData.items.map(k => `<option value="${k.id}">${k.nama_kelas}</option>`).join("")}</select>
-          <select id="s-kelompok"><option value="">Semua Kelompok TPQ</option>${kelompokData.items.map(k => `<option value="${k.id}">${k.nama_kelompok}</option>`).join("")}</select>
+          <select id="s-kelompok"><option value="">Semua Kelompok PTQ</option>${kelompokData.items.map(k => `<option value="${k.id}">${k.nama_kelompok}</option>`).join("")}</select>
           <select id="s-kamar"><option value="">Semua Kamar</option>${kamarData.items.map(k => `<option value="${k.id}">${k.nama_kamar}</option>`).join("")}</select>
           <select id="s-tipe"><option value="">Semua Tipe</option><option value="Mukim">Mukim</option><option value="Non-Mukim">Non-Mukim</option></select>
         </div>
@@ -552,7 +575,7 @@ async function renderSantriForm(root, editId) {
           <div class="field"><label>Alamat</label><textarea id="f-alamat" rows="2">${v("alamat")}</textarea></div>
           <div class="grid-2">
             <div class="field"><label>Kelas</label><select id="f-kelas"><option value="">-</option>${kelasData.items.map(k => `<option value="${k.id}" ${v("id_kelas") === k.id ? "selected" : ""}>${k.nama_kelas}</option>`).join("")}</select></div>
-            <div class="field"><label>Kelompok TPQ</label><select id="f-kelompok"><option value="">-</option>${kelompokData.items.map(k => `<option value="${k.id}" ${v("id_kelompok") === k.id ? "selected" : ""}>${k.nama_kelompok}</option>`).join("")}</select></div>
+            <div class="field"><label>Kelompok PTQ</label><select id="f-kelompok"><option value="">-</option>${kelompokData.items.map(k => `<option value="${k.id}" ${v("id_kelompok") === k.id ? "selected" : ""}>${k.nama_kelompok}</option>`).join("")}</select></div>
           </div>
           <div class="field"><label>Kamar</label><select id="f-kamar"><option value="">-</option>${kamarData.items.map(k => `<option value="${k.id}" ${v("id_kamar") === k.id ? "selected" : ""}>${k.nama_kamar}</option>`).join("")}</select></div>
           <div class="field"><label>Foto (opsional)</label><input type="file" id="f-foto" accept="image/*"></div>
@@ -587,6 +610,7 @@ async function renderSantriForm(root, editId) {
         }
         const res = await Api.call("santri.save", payload);
         RefCache.invalidate("santri_semua"); // data santri berubah, jangan pakai cache lama
+        RefCache.invalidate("dashboard");
         Router.go("santri", { id: res.item.id });
       } catch (err) {
         alert(err.message);
@@ -611,7 +635,7 @@ function fileToBase64(file) {
 
 const MASTER_TABS = [
   { key: "kelas", label: "Kelas", fields: [{ id: "nama_kelas", label: "Nama Kelas" }, { id: "wali_kelas", label: "Wali Kelas" }] },
-  { key: "kelompok", label: "Kelompok TPQ", fields: [{ id: "nama_kelompok", label: "Nama Kelompok" }, { id: "pengajar", label: "Pengajar" }] },
+  { key: "kelompok", label: "Kelompok PTQ", fields: [{ id: "nama_kelompok", label: "Nama Kelompok" }, { id: "pengajar", label: "Pengajar" }] },
   { key: "kamar", label: "Kamar", fields: [{ id: "nama_kamar", label: "Nama Kamar" }, { id: "kapasitas", label: "Kapasitas" }] },
   { key: "wali", label: "Wali Santri", fields: [{ id: "nama_wali", label: "Nama Wali" }, { id: "hubungan", label: "Hubungan" }, { id: "kontak", label: "No. WhatsApp" }] }
 ];
@@ -894,7 +918,7 @@ Router.add("akun", async (root, params) => {
                 <select id="ak-peran">
                   <option value="admin" ${v("peran") === "admin" ? "selected" : ""}>Admin / Tim Kantor</option>
                   <option value="guru_mapel" ${v("peran") === "guru_mapel" ? "selected" : ""}>Guru Mata Pelajaran</option>
-                  <option value="pengajar_tpq" ${v("peran") === "pengajar_tpq" ? "selected" : ""}>Pengajar TPQ / Tahfidz</option>
+                  <option value="pengajar_tpq" ${v("peran") === "pengajar_tpq" ? "selected" : ""}>Pengajar PTQ / Tahfidz</option>
                   <option value="pimpinan" ${v("peran") === "pimpinan" ? "selected" : ""}>Pimpinan</option>
                 </select>
               </div>
@@ -905,7 +929,7 @@ Router.add("akun", async (root, params) => {
               ${checkboxGroup("ak-kelas", daftarKelas, "nama_kelas", v("kelas_diampu"))}
             </div>
             <div class="field" id="ak-kelompok-wrap" style="display:none;">
-              <label>Kelompok TPQ yang Diampu (bisa pilih lebih dari satu)</label>
+              <label>Kelompok PTQ yang Diampu (bisa pilih lebih dari satu)</label>
               ${checkboxGroup("ak-kelompok", daftarKelompok, "nama_kelompok", v("kelompok_diampu"))}
             </div>
             <div class="field" id="ak-wali-wrap" style="display:none;">

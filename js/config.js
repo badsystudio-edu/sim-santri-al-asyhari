@@ -1,6 +1,6 @@
 // ISI dengan URL Web App Apps Script Anda (diakhiri /exec).
 // Contoh: https://script.google.com/macros/s/AKfycb.../exec
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzLNg36o9W1DJwJkWcUy0iyYp2nm63dq_KKStzaGR_8IR7-lsFnHYXoCMyKk_bstUgjtQ/exec";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzEBA7b3ZV-y4iSmtPfvcyNZ64CWBbbnqAilbGOIZo5TzMphRTTnQygtMQEnB0fThlX6w/exec";
 
 const APP_INFO = {
   nama: "SIM Santri",

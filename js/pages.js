@@ -1,10 +1,11 @@
 // ======================= LAYOUT =======================
 
 const NAV_ITEMS = [
-  { key: "dashboard", label: "Beranda", icon: "🏠", roles: null },
-  { key: "presensi", label: "Presensi", icon: "✅", roles: ["admin", "guru_mapel", "pengajar_tpq"] },
+  { key: "dashboard", label: "Beranda", icon: "🏠", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "anaksaya", label: "Anak Saya", icon: "🧒", roles: ["wali_santri"] },
+  { key: "presensi", label: "Presensi", icon: "✅", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "hafalan", label: "Hafalan", icon: "📖", roles: ["admin", "pengajar_tpq", "pimpinan"] },
-  { key: "santri", label: "Santri", icon: "👤", roles: null },
+  { key: "santri", label: "Santri", icon: "👤", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "master", label: "Data Master", icon: "🗂️", roles: ["admin", "pimpinan"] },
   { key: "prestasi", label: "Prestasi", icon: "🏅", roles: ["admin", "pimpinan"] },
   { key: "laporan", label: "Laporan", icon: "🖨️", roles: ["admin", "pimpinan"] },
@@ -78,7 +79,7 @@ function judulHalaman(key) {
 }
 
 function labelPeran(p) {
-  const map = { admin: "Admin / Tim Kantor", guru_mapel: "Guru Mata Pelajaran", pengajar_tpq: "Pengajar PTQ / Tahfidz", pimpinan: "Pimpinan" };
+  const map = { admin: "Admin / Tim Kantor", guru_mapel: "Guru Mata Pelajaran", pengajar_tpq: "Pengajar PTQ / Tahfidz", pimpinan: "Pimpinan", wali_santri: "Wali Santri" };
   return map[p] || p;
 }
 
@@ -139,7 +140,7 @@ Router.add("login", async (root) => {
       });
       Auth.setSesi(data.token, data.profil);
       prefetchSemua(); // langsung panaskan cache begitu login berhasil
-      Router.go("dashboard");
+      Router.go(Router.berandaUntukPeran());
     } catch (err) {
       alertBox.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
       btn.disabled = false; btn.textContent = "Masuk";
@@ -179,6 +180,17 @@ function renderDashboard(d) {
         </div>
       </div>
       <div class="card">
+        <h3>Rekap Bulan Ini ${d.bulan ? `(${namaBulanIndo(d.bulan)})` : ""}</h3>
+        <div class="text-muted text-sm mb-1">Kehadiran sekolah pagi sepanjang bulan berjalan. Lihat detail per kelas/kelompok di menu Presensi.</div>
+        <div class="grid-2">
+          <div>${chipStatus("Hadir")} <b>${d.rekap_kehadiran_bulan_ini ? d.rekap_kehadiran_bulan_ini.Hadir : 0}</b></div>
+          <div>${chipStatus("Sakit")} <b>${d.rekap_kehadiran_bulan_ini ? d.rekap_kehadiran_bulan_ini.Sakit : 0}</b></div>
+          <div>${chipStatus("Izin")} <b>${d.rekap_kehadiran_bulan_ini ? d.rekap_kehadiran_bulan_ini.Izin : 0}</b></div>
+          <div>${chipStatus("Alpa")} <b>${d.rekap_kehadiran_bulan_ini ? d.rekap_kehadiran_bulan_ini.Alpa : 0}</b></div>
+        </div>
+        <div class="mt-1 text-sm"><b>${d.setoran_bulan_ini || 0}</b> setoran hafalan tercatat bulan ini.</div>
+      </div>
+      <div class="card">
         <h3>Rata-rata Progres Hafalan</h3>
         <div style="font-size:28px;font-weight:700;color:var(--gold);">Juz ${d.rata_rata_progres_juz}</div>
         <div class="text-muted text-sm">Rata-rata capaian juz tertinggi santri yang sudah tercatat</div>
@@ -192,6 +204,7 @@ Router.add("presensi", async (root) => {
   root.innerHTML = Shell("presensi", `<div class="loading">Memuat...</div>`);
   const main = document.querySelector("main.content");
   const profil = Auth.getProfil();
+  const isPimpinan = profil.peran === "pimpinan";
   const isSekolah = profil.peran === "guru_mapel" || profil.peran === "admin";
   const isTpq = profil.peran === "pengajar_tpq" || profil.peran === "admin";
 
@@ -207,6 +220,15 @@ Router.add("presensi", async (root) => {
     if (profil.peran === "pengajar_tpq") {
       const diampu = (profil.kelompok_diampu || "").split(",");
       daftarKelompok = daftarKelompok.filter(k => diampu.indexOf(k.id) !== -1);
+    }
+
+    if (isPimpinan) {
+      // Pimpinan bersifat read-only: tidak ada form input harian, langsung ke rekap bulanan.
+      main.innerHTML = `<div id="rekap-bulanan-wrap"></div>`;
+      renderRekapBulananCard(document.getElementById("rekap-bulanan-wrap"), "presensi", {
+        daftarKelas: daftarKelas, daftarKelompok: daftarKelompok, tampilkanPilihanJenisRef: true
+      });
+      return;
     }
 
     main.innerHTML = `
@@ -233,7 +255,14 @@ Router.add("presensi", async (root) => {
         <button class="btn btn-primary btn-block" id="btn-muat-presensi">Muat Daftar Santri</button>
       </div>
       <div id="presensi-list"></div>
+      <div id="rekap-bulanan-wrap" class="mt-2"></div>
     `;
+
+    renderRekapBulananCard(document.getElementById("rekap-bulanan-wrap"), "presensi", {
+      daftarKelas: daftarKelas, daftarKelompok: daftarKelompok,
+      tampilkanPilihanJenisRef: isSekolah && isTpq,
+      refTypeTunggal: isSekolah ? "kelas" : "kelompok"
+    });
 
     function renderRefOptions() {
       const jenis = document.getElementById("p-jenis").value;
@@ -329,8 +358,13 @@ Router.add("hafalan", async (root) => {
   const bisaInput = profil.peran === "admin" || profil.peran === "pengajar_tpq";
 
   try {
-    const res = await Ref.santriSemua();
+    const [res, kelompokRes] = await Promise.all([Ref.santriSemua(), Ref.kelompok()]);
     const santriMukim = res.items.filter(s => s.status === "aktif" && s.tipe === "Mukim");
+    let daftarKelompok = kelompokRes.items || [];
+    if (profil.peran === "pengajar_tpq") {
+      const diampu = (profil.kelompok_diampu || "").split(",");
+      daftarKelompok = daftarKelompok.filter(k => diampu.indexOf(k.id) !== -1);
+    }
 
     main.innerHTML = `
       <div class="card">
@@ -341,7 +375,12 @@ Router.add("hafalan", async (root) => {
         </select>
       </div>
       <div id="hafalan-body"></div>
+      <div id="rekap-bulanan-wrap" class="mt-2"></div>
     `;
+
+    renderRekapBulananCard(document.getElementById("rekap-bulanan-wrap"), "hafalan", {
+      daftarKelas: [], daftarKelompok: daftarKelompok, tampilkanPilihanJenisRef: false, refTypeTunggal: "kelompok"
+    });
 
     document.getElementById("h-santri").addEventListener("change", muatHafalan);
 
@@ -451,8 +490,72 @@ Router.add("santri", async (root, params) => {
           <select id="s-tipe"><option value="">Semua Tipe</option><option value="Mukim">Mukim</option><option value="Non-Mukim">Non-Mukim</option></select>
         </div>
       </div>
+      ${isAdmin ? `
+      <div class="card">
+        <h3>Impor Massal Data Santri</h3>
+        <div class="text-muted text-sm mb-1">Untuk mendata banyak santri sekaligus: unduh template, isi di Excel, lalu unggah kembali di sini.</div>
+        <a href="assets/Template_Impor_Santri.xlsx" download class="btn btn-secondary btn-block mb-1">Unduh Template Excel</a>
+        <input type="file" id="impor-file" accept=".xlsx,.xls">
+        <button class="btn btn-primary btn-block mt-1" id="btn-impor">Unggah &amp; Impor</button>
+        <div id="impor-hasil" class="mt-1"></div>
+      </div>` : ""}
       <div id="santri-hasil"></div>
     `;
+
+    if (isAdmin) {
+      document.getElementById("btn-impor").addEventListener("click", async () => {
+        const fileInput = document.getElementById("impor-file");
+        const hasilEl = document.getElementById("impor-hasil");
+        const file = fileInput.files[0];
+        if (!file) { hasilEl.innerHTML = `<div class="alert alert-error">Pilih file Excel dulu.</div>`; return; }
+
+        hasilEl.innerHTML = `<div class="loading">Membaca file...</div>`;
+        try {
+          const buffer = await file.arrayBuffer();
+          const wb = XLSX.read(buffer, { type: "array" });
+          const sheet = wb.Sheets["Data Santri"] || wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet, { range: 1 }); // lewati baris header (baris 1)
+
+          const items = rows.map(r => ({
+            nis: String(r["NIS"] || "").trim(),
+            nama: String(r["Nama Lengkap"] || "").trim(),
+            jenis_kelamin: String(r["Jenis Kelamin (L/P)"] || "L").trim(),
+            tempat_lahir: String(r["Tempat Lahir"] || "").trim(),
+            tgl_lahir: r["Tanggal Lahir (YYYY-MM-DD)"] ? String(r["Tanggal Lahir (YYYY-MM-DD)"]).trim() : "",
+            alamat: String(r["Alamat"] || "").trim(),
+            tipe: String(r["Tipe (Mukim/Non-Mukim)"] || "Mukim").trim(),
+            nama_kelas: String(r["Nama Kelas"] || "").trim(),
+            nama_kelompok: String(r["Nama Kelompok PTQ"] || "").trim(),
+            nama_kamar: String(r["Nama Kamar"] || "").trim()
+          })).filter(it => it.nis || it.nama);
+
+          if (items.length === 0) {
+            hasilEl.innerHTML = `<div class="alert alert-error">Tidak ada baris data yang terbaca. Pastikan mengisi mulai baris ke-3 di sheet "Data Santri".</div>`;
+            return;
+          }
+
+          hasilEl.innerHTML = `<div class="loading">Mengimpor ${items.length} baris...</div>`;
+          const hasil = await Api.call("santri.importBatch", { items });
+          RefCache.invalidate("santri_semua");
+          RefCache.invalidate("dashboard");
+
+          const gagal = hasil.detail.filter(d => d.status === "gagal");
+          hasilEl.innerHTML = `
+            <div class="alert ${gagal.length > 0 ? "alert-error" : "alert-success"}">
+              Berhasil: <b>${hasil.jumlah_berhasil}</b> &nbsp; Gagal: <b>${hasil.jumlah_gagal}</b>
+            </div>
+            ${gagal.length > 0 ? `<div class="table-wrap mt-1"><table class="data-table">
+              <tr><th>Baris Excel</th><th>Keterangan</th></tr>
+              ${gagal.map(g => `<tr><td>${g.baris}</td><td>${g.pesan}</td></tr>`).join("")}
+            </table></div>` : ""}
+          `;
+          fileInput.value = "";
+          cariSantri();
+        } catch (err) {
+          hasilEl.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+        }
+      });
+    }
 
     const cariEl = document.getElementById("s-cari");
     let timer;
@@ -474,9 +577,12 @@ Router.add("santri", async (root, params) => {
         hasil.innerHTML = items.map(s => `
           <div class="card" style="cursor:pointer;" onclick="Router.go('santri', {id:'${s.id}'})">
             <div class="flex-between">
-              <div>
-                <div style="font-weight:700;">${s.nama}</div>
-                <div class="text-muted text-sm">NIS ${s.nis}</div>
+              <div class="flex gap-1" style="align-items:center;">
+                ${avatarKecil({ nama: s.nama, url_foto: s.url_foto }, 44)}
+                <div>
+                  <div style="font-weight:700;">${s.nama}</div>
+                  <div class="text-muted text-sm">NIS ${s.nis}</div>
+                </div>
               </div>
               <div>${chipTipe(s.tipe)}</div>
             </div>
@@ -504,9 +610,12 @@ async function renderSantriDetail(root, id) {
       <button class="btn btn-secondary btn-sm mb-1" onclick="Router.go('santri')">&larr; Kembali</button>
       <div class="card">
         <div class="flex-between">
-          <div>
-            <h3 style="margin:0;">${s.nama}</h3>
-            <div class="text-muted text-sm">NIS ${s.nis} &bull; ${s.jenis_kelamin === "L" ? "Laki-laki" : "Perempuan"}</div>
+          <div class="flex gap-1" style="align-items:center;">
+            ${avatarKecil({ nama: s.nama, url_foto: s.url_foto }, 56)}
+            <div>
+              <h3 style="margin:0;">${s.nama}</h3>
+              <div class="text-muted text-sm">NIS ${s.nis} &bull; ${s.jenis_kelamin === "L" ? "Laki-laki" : "Perempuan"}</div>
+            </div>
           </div>
           <div>${chipTipe(s.tipe)}</div>
         </div>
@@ -535,7 +644,10 @@ async function renderSantriDetail(root, id) {
         ${data.riwayat_prestasi.length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
           data.riwayat_prestasi.map(p => `<div class="text-sm mb-1"><b>${p.nama_prestasi}</b> &mdash; ${p.tingkat} (${p.tanggal})</div>`).join("")}
       </div>
+
+      <div id="pesan-wrap"></div>
     `;
+    await pasangPesanWidget(document.getElementById("pesan-wrap"), s.id);
   } catch (err) {
     tampilkanGalat(main, err);
   }
@@ -889,14 +1001,16 @@ Router.add("akun", async (root, params) => {
 
   async function muat() {
     try {
-      const [akunRes, kelasRes, kelompokRes] = await Promise.all([
+      const [akunRes, kelasRes, kelompokRes, santriRes] = await Promise.all([
         Api.call("akun.list", {}), // daftar akun tidak di-cache (sensitif & sering berubah)
         Ref.kelas(),
-        Ref.kelompok()
+        Ref.kelompok(),
+        Ref.santriSemua()
       ]);
       const akunList = akunRes.items || [];
       const daftarKelas = kelasRes.items || [];
       const daftarKelompok = kelompokRes.items || [];
+      const daftarSantri = (santriRes.items || []).filter(s => s.status === "aktif");
       const existing = editingId ? akunList.find(a => a.id === editingId) : null;
       if (editingId && !existing) { Router.go("akun"); return; }
 
@@ -922,9 +1036,10 @@ Router.add("akun", async (root, params) => {
                   <option value="guru_mapel" ${v("peran") === "guru_mapel" ? "selected" : ""}>Guru Mata Pelajaran</option>
                   <option value="pengajar_tpq" ${v("peran") === "pengajar_tpq" ? "selected" : ""}>Pengajar PTQ / Tahfidz</option>
                   <option value="pimpinan" ${v("peran") === "pimpinan" ? "selected" : ""}>Pimpinan</option>
+                  <option value="wali_santri" ${v("peran") === "wali_santri" ? "selected" : ""}>Wali Santri (Orang Tua)</option>
                 </select>
               </div>
-              <div class="field"><label>Mata Pelajaran / Bidang (opsional)</label><input type="text" id="ak-mapel" value="${v("mapel") || v("bidang")}" placeholder="mis. Matematika, Tahfidz"></div>
+              <div class="field" id="ak-mapel-wrap"><label>Mata Pelajaran / Bidang (opsional)</label><input type="text" id="ak-mapel" value="${v("mapel") || v("bidang")}" placeholder="mis. Matematika, Tahfidz"></div>
             </div>
             <div class="field" id="ak-kelas-wrap" style="display:none;">
               <label>Kelas yang Diampu (bisa pilih lebih dari satu)</label>
@@ -940,6 +1055,14 @@ Router.add("akun", async (root, params) => {
                 <option value="">-- Bukan wali kelas --</option>
                 ${daftarKelas.map(k => `<option value="${k.id}" ${v("wali_kelas_id") === k.id ? "selected" : ""}>${k.nama_kelas}</option>`).join("")}
               </select>
+            </div>
+            <div class="field" id="ak-santri-anak-wrap" style="display:none;">
+              <label>Santri (Anak)</label>
+              <select id="ak-santri-anak">
+                <option value="">-- Pilih Santri --</option>
+                ${daftarSantri.map(s => `<option value="${s.id}" ${v("id_santri_anak") === s.id ? "selected" : ""}>${s.nama} (NIS ${s.nis})</option>`).join("")}
+              </select>
+              <div class="text-muted text-sm mt-1">Akun ini hanya akan bisa melihat data santri yang dipilih di sini.</div>
             </div>
             <button class="btn btn-primary btn-block" type="submit">${existing ? "Simpan Perubahan" : "Buat Akun"}</button>
             ${existing ? `<button type="button" class="btn btn-secondary btn-block mt-1" onclick="Router.go('akun')">Batal Edit</button>` : ""}
@@ -975,9 +1098,12 @@ Router.add("akun", async (root, params) => {
 
       const peranSelect = document.getElementById("ak-peran");
       function toggleRefFields() {
-        document.getElementById("ak-kelas-wrap").style.display = peranSelect.value === "guru_mapel" ? "block" : "none";
-        document.getElementById("ak-kelompok-wrap").style.display = peranSelect.value === "pengajar_tpq" ? "block" : "none";
-        document.getElementById("ak-wali-wrap").style.display = peranSelect.value === "guru_mapel" ? "block" : "none";
+        const p = peranSelect.value;
+        document.getElementById("ak-kelas-wrap").style.display = p === "guru_mapel" ? "block" : "none";
+        document.getElementById("ak-kelompok-wrap").style.display = p === "pengajar_tpq" ? "block" : "none";
+        document.getElementById("ak-wali-wrap").style.display = p === "guru_mapel" ? "block" : "none";
+        document.getElementById("ak-santri-anak-wrap").style.display = p === "wali_santri" ? "block" : "none";
+        document.getElementById("ak-mapel-wrap").style.display = p === "wali_santri" ? "none" : "block";
       }
       peranSelect.addEventListener("change", toggleRefFields);
       toggleRefFields();
@@ -995,8 +1121,12 @@ Router.add("akun", async (root, params) => {
             bidang: document.getElementById("ak-mapel").value,
             kelas_diampu: peranSelect.value === "guru_mapel" ? ambilChecklist("ak-kelas") : "",
             kelompok_diampu: peranSelect.value === "pengajar_tpq" ? ambilChecklist("ak-kelompok") : "",
-            wali_kelas_id: peranSelect.value === "guru_mapel" ? document.getElementById("ak-wali-kelas").value : ""
+            wali_kelas_id: peranSelect.value === "guru_mapel" ? document.getElementById("ak-wali-kelas").value : "",
+            id_santri_anak: peranSelect.value === "wali_santri" ? document.getElementById("ak-santri-anak").value : ""
           };
+          if (peranSelect.value === "wali_santri" && !dataAkun.id_santri_anak) {
+            throw new Error("Pilih santri (anak) untuk akun wali santri ini.");
+          }
           const payload = { data: dataAkun };
           const fotoFile = document.getElementById("ak-foto").files[0];
           if (fotoFile) { payload.foto_base64 = await fileToBase64(fotoFile); payload.foto_nama = fotoFile.name; }
@@ -1051,3 +1181,230 @@ window.toggleAkun = async function (id) {
   if (!confirm("Ubah status akun ini?")) return;
   try { await Api.call("akun.toggle", { id }); window.__muatAkun(); } catch (err) { alert(err.message); }
 };
+
+// ======================= WIDGET PESAN (dipakai di Anak Saya & Detail Santri) =======================
+
+function bubbleWaktu(waktu) {
+  try {
+    var d = new Date(waktu.replace(' ', 'T'));
+    return d.toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  } catch (e) { return waktu; }
+}
+
+async function pasangPesanWidget(container, idSantri) {
+  const profil = Auth.getProfil();
+  container.innerHTML = `
+    <div class="card">
+      <h3>Pesan</h3>
+      <div id="pesan-list" class="loading">Memuat pesan...</div>
+      <form id="form-pesan" class="mt-2" style="display:flex;gap:8px;">
+        <input type="text" id="pesan-isi" placeholder="Tulis pesan..." style="flex:1;" required>
+        <button class="btn btn-primary" type="submit" style="width:auto;padding:0 16px;">Kirim</button>
+      </form>
+    </div>
+  `;
+
+  async function muatPesan() {
+    const listEl = document.getElementById("pesan-list");
+    try {
+      const data = await Api.call("pesan.list", { id_santri: idSantri });
+      const items = data.items || [];
+      if (items.length === 0) {
+        listEl.innerHTML = `<div class="empty-state">Belum ada pesan. Mulai percakapan di bawah.</div>`;
+      } else {
+        listEl.innerHTML = `<div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+          ${items.map(p => {
+            const milikSaya = p.dari_peran === profil.peran && p.dari_nama === profil.nama;
+            return `<div style="align-self:${milikSaya ? "flex-end" : "flex-start"};max-width:80%;">
+              <div style="background:${milikSaya ? "var(--emerald-surface)" : "#F1F5F9"};border-radius:12px;padding:8px 12px;font-size:13px;">
+                ${p.isi}
+              </div>
+              <div class="text-muted" style="font-size:10px;margin-top:2px;${milikSaya ? "text-align:right;" : ""}">${p.dari_nama} (${labelPeran(p.dari_peran)}) &middot; ${bubbleWaktu(p.waktu)}</div>
+            </div>`;
+          }).join("")}
+        </div>`;
+      }
+    } catch (err) {
+      listEl.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+    }
+  }
+
+  document.getElementById("form-pesan").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("pesan-isi");
+    const isi = input.value.trim();
+    if (!isi) return;
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      await Api.call("pesan.kirim", { id_santri: idSantri, isi });
+      input.value = "";
+      await muatPesan();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  await muatPesan();
+}
+
+// ======================= ANAK SAYA (portal wali santri) =======================
+
+Router.add("anaksaya", async (root) => {
+  root.innerHTML = Shell("anaksaya", `<div class="loading">Memuat data anak Anda...</div>`);
+  const main = document.querySelector("main.content");
+  try {
+    const data = await Api.call("wali.anakSaya", {});
+    const s = data.santri;
+    main.innerHTML = `
+      <div class="card" style="text-align:center;">
+        <div style="margin:0 auto 10px;">${avatarKecil({ nama: s.nama, url_foto: s.url_foto }, 96)}</div>
+        <h3 style="margin:0;font-size:20px;">${s.nama}</h3>
+        <div class="text-muted text-sm">NIS ${s.nis} &bull; ${chipTipe(s.tipe)}</div>
+      </div>
+
+      <div class="card">
+        <h3>Progres Hafalan Terbaru</h3>
+        ${data.riwayat_hafalan.length === 0 ? `<div class="empty-state">Belum ada data hafalan.</div>` :
+          data.riwayat_hafalan.slice(0, 5).map(h => `<div class="text-sm mb-1">${h.tanggal} &mdash; Juz ${h.juz}, ${h.surah}:${h.ayat_awal}-${h.ayat_akhir} <span class="text-muted">(${h.jenis_setoran})</span></div>`).join("")}
+      </div>
+
+      <div class="card">
+        <h3>Kehadiran Terbaru (Sekolah Pagi)</h3>
+        ${data.riwayat_presensi_sekolah.length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
+          data.riwayat_presensi_sekolah.slice(-5).reverse().map(p => `<div class="text-sm mb-1">${p.tanggal} ${chipStatus(p.status)} ${p.mapel ? `<span class="text-muted">&middot; ${p.mapel}</span>` : ""}</div>`).join("")}
+      </div>
+
+      <div class="card">
+        <h3>Prestasi</h3>
+        ${data.riwayat_prestasi.length === 0 ? `<div class="empty-state">Belum ada prestasi tercatat.</div>` :
+          data.riwayat_prestasi.map(p => `<div class="text-sm mb-1"><b>${p.nama_prestasi}</b> &mdash; ${p.tingkat} (${p.tanggal})</div>`).join("")}
+      </div>
+
+      <div id="pesan-wrap"></div>
+    `;
+    await pasangPesanWidget(document.getElementById("pesan-wrap"), s.id);
+  } catch (err) {
+    tampilkanGalat(main, err);
+  }
+});
+
+// ======================= REKAP BULANAN (dipakai di Presensi & Hafalan) =======================
+
+function bulanIniStr() {
+  return new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+}
+
+function namaBulanIndo(bulanStr) {
+  const [tahun, bulan] = bulanStr.split("-");
+  const nama = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  return `${nama[parseInt(bulan, 10) - 1]} ${tahun}`;
+}
+
+// jenisRekap: 'presensi' | 'hafalan'. opsi: { daftarKelas, daftarKelompok, tampilkanPilihanJenisRef }
+function renderRekapBulananCard(container, jenisRekap, opsi) {
+  const bulanDefault = bulanIniStr();
+  const adaDuaRef = jenisRekap === "presensi" && opsi.tampilkanPilihanJenisRef;
+
+  container.innerHTML = `
+    <div class="card">
+      <h3>Rekap Bulanan ${jenisRekap === "presensi" ? "Kehadiran" : "Hafalan"}</h3>
+      <div class="text-muted text-sm mb-1">Bulan berjalan selalu bisa dilihat di sini; begitu berganti bulan, bulan sebelumnya tetap tersimpan rapi dan bisa dibuka kapan saja lewat pemilih bulan.</div>
+      ${adaDuaRef ? `
+      <div class="field">
+        <label>Jenis</label>
+        <select id="rb-jenis-ref">
+          <option value="kelas">Sekolah Pagi (per Kelas)</option>
+          <option value="kelompok">PTQ (per Kelompok)</option>
+        </select>
+      </div>` : ""}
+      <div class="field" id="rb-ref-wrap"></div>
+      <div class="field">
+        <label>Bulan</label>
+        <input type="month" id="rb-bulan" value="${bulanDefault}">
+      </div>
+      <div class="flex gap-1">
+        <button class="btn btn-primary btn-block" id="rb-tampilkan">Tampilkan Rekap</button>
+        <button class="btn btn-accent btn-block" id="rb-cetak">Cetak PDF</button>
+      </div>
+      <div id="rb-hasil" class="mt-2"></div>
+    </div>
+  `;
+
+  function refTypeAktif() {
+    if (!adaDuaRef) return opsi.refTypeTunggal || (jenisRekap === "hafalan" ? "kelompok" : "kelas");
+    return document.getElementById("rb-jenis-ref").value;
+  }
+
+  function renderRefSelect() {
+    const refType = refTypeAktif();
+    const wrap = document.getElementById("rb-ref-wrap");
+    const daftar = refType === "kelas" ? opsi.daftarKelas : opsi.daftarKelompok;
+    const labelField = refType === "kelas" ? "nama_kelas" : "nama_kelompok";
+    const labelTampil = refType === "kelas" ? "Kelas" : "Kelompok PTQ";
+    if (daftar.length === 0) {
+      wrap.innerHTML = `<div class="empty-state">Tidak ada ${labelTampil.toLowerCase()} yang bisa dipilih.</div>`;
+      return;
+    }
+    wrap.innerHTML = `<label>${labelTampil}</label><select id="rb-ref">${daftar.map(d => `<option value="${d.id}">${d[labelField]}</option>`).join("")}</select>`;
+  }
+
+  if (adaDuaRef) document.getElementById("rb-jenis-ref").addEventListener("change", renderRefSelect);
+  renderRefSelect();
+
+  async function tampilkanRekap() {
+    const hasilEl = document.getElementById("rb-hasil");
+    const refEl = document.getElementById("rb-ref");
+    if (!refEl || !refEl.value) { hasilEl.innerHTML = `<div class="empty-state">Pilih kelas/kelompok dulu.</div>`; return; }
+    const refType = refTypeAktif();
+    const refId = refEl.value;
+    const bulan = document.getElementById("rb-bulan").value;
+    hasilEl.innerHTML = `<div class="loading">Memuat rekap...</div>`;
+    try {
+      const data = await Api.call("rekap.bulanan", { jenis: jenisRekap, ref_type: refType, ref_id: refId, bulan });
+      if (data.items.length === 0) {
+        hasilEl.innerHTML = `<div class="empty-state">Belum ada santri pada kelas/kelompok ini.</div>`;
+        return;
+      }
+      if (jenisRekap === "presensi") {
+        hasilEl.innerHTML = `<div class="table-wrap"><table class="data-table">
+          <tr><th>Nama</th><th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alpa</th></tr>
+          ${data.items.map(it => `<tr><td>${it.nama}</td><td>${it.tally.Hadir}</td><td>${it.tally.Sakit}</td><td>${it.tally.Izin}</td><td>${it.tally.Alpa}</td></tr>`).join("")}
+        </table></div>`;
+      } else {
+        hasilEl.innerHTML = `<div class="table-wrap"><table class="data-table">
+          <tr><th>Nama</th><th>Jumlah Setoran</th><th>Juz Tertinggi Bulan Ini</th></tr>
+          ${data.items.map(it => `<tr><td>${it.nama}</td><td>${it.jumlah_setoran}</td><td>Juz ${it.juz_tertinggi_bulan_ini}</td></tr>`).join("")}
+        </table></div>`;
+      }
+    } catch (err) {
+      tampilkanGalat(hasilEl, err);
+    }
+  }
+
+  document.getElementById("rb-tampilkan").addEventListener("click", tampilkanRekap);
+  tampilkanRekap(); // tampil otomatis untuk bulan & ref default begitu halaman dibuka
+
+  document.getElementById("rb-cetak").addEventListener("click", async (e) => {
+    const refEl = document.getElementById("rb-ref");
+    if (!refEl || !refEl.value) { alert("Pilih kelas/kelompok dulu."); return; }
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = "Menyusun PDF...";
+    try {
+      const data = await Api.call("laporan.rekapBulanan", {
+        jenis: jenisRekap, ref_type: refTypeAktif(), ref_id: refEl.value,
+        bulan: document.getElementById("rb-bulan").value
+      });
+      const link = document.createElement("a");
+      link.href = "data:application/pdf;base64," + data.base64;
+      link.download = data.nama_file;
+      link.click();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Cetak PDF";
+    }
+  });
+}

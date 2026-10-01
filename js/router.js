@@ -10,6 +10,10 @@ const Router = {
     const params = Object.fromEntries(new URLSearchParams(query || ""));
     return { name: name || "login", params };
   },
+  berandaUntukPeran() {
+    const p = Auth.getProfil();
+    return p && p.peran === "wali_santri" ? "anaksaya" : "dashboard";
+  },
   async render() {
     const { name, params } = this.parse();
     const root = document.getElementById("app");
@@ -19,11 +23,11 @@ const Router = {
       return;
     }
     if (name === "login" && Auth.isLoggedIn()) {
-      this.go("dashboard");
+      this.go(this.berandaUntukPeran());
       return;
     }
 
-    const handler = this.routes[name] || this.routes["dashboard"];
+    const handler = this.routes[name] || this.routes[this.berandaUntukPeran()];
     root.innerHTML = "";
     try {
       await handler(root, params);

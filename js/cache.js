@@ -64,6 +64,8 @@ const Ref = {
   kelompok: () => RefCache.get("kelompok", () => amanItems(() => Api.call("master.list", { entity: "kelompok" }))),
   kamar: () => RefCache.get("kamar", () => amanItems(() => Api.call("master.list", { entity: "kamar" }))),
   wali: () => RefCache.get("wali", () => amanItems(() => Api.call("master.list", { entity: "wali" }))),
+  mapel: () => RefCache.get("mapel", () => amanItems(() => Api.call("master.list", { entity: "mapel" }))),
+  jam: () => RefCache.get("jam", () => amanItems(() => Api.call("jam.list", {})), 10 * 60 * 1000),
   santriSemua: () => RefCache.get("santri_semua", () => amanItems(() => Api.call("santri.search", {})), 3 * 60 * 1000),
   dashboard: () => RefCache.get("dashboard", () => Api.call("dashboard", {}), 30 * 1000)
 };

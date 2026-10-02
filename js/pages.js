@@ -1,12 +1,19 @@
 // ======================= LAYOUT =======================
 
+// Escape teks buatan pengguna sebelum dimasukkan ke HTML (mencegah penyisipan skrip lewat pesan/jurnal).
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
 const NAV_ITEMS = [
   { key: "dashboard", label: "Beranda", icon: "🏠", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "anaksaya", label: "Anak Saya", icon: "🧒", roles: ["wali_santri"] },
   { key: "presensi", label: "Presensi", icon: "✅", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "jurnal", label: "Jurnal", icon: "📝", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "hafalan", label: "Hafalan", icon: "📖", roles: ["admin", "pengajar_tpq", "pimpinan"] },
   { key: "santri", label: "Santri", icon: "👤", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "master", label: "Data Master", icon: "🗂️", roles: ["admin", "pimpinan"] },
+  { key: "jam", label: "Jam Pelajaran", icon: "⏰", roles: ["admin", "pimpinan"] },
   { key: "prestasi", label: "Prestasi", icon: "🏅", roles: ["admin", "pimpinan"] },
   { key: "laporan", label: "Laporan", icon: "🖨️", roles: ["admin", "pimpinan"] },
   { key: "akun", label: "Akun", icon: "⚙️", roles: ["admin"] }
@@ -29,7 +36,10 @@ function avatarKecil(profil, ukuran) {
 function Shell(activeKey, innerHtml) {
   const profil = Auth.getProfil();
   const navList = NAV_ITEMS.filter(navBolehTampil);
-  const bottomItems = navList.slice(0, 5); // ruang terbatas di HP
+  // Di HP hanya muat 5 tab: bila menu lebih banyak, tampilkan 4 + tab "Menu" yang membuka semua menu.
+  const adaMenuLain = navList.length > 5;
+  const bottomItems = adaMenuLain ? navList.slice(0, 4) : navList;
+  const menuAktif = adaMenuLain && !bottomItems.some(n => n.key === activeKey);
 
   return `
     <div class="layout-desktop">
@@ -65,6 +75,7 @@ function Shell(activeKey, innerHtml) {
     </div>
     <nav class="bottom-nav">
       ${bottomItems.map(n => `<a href="#/${n.key}" class="${n.key === activeKey ? "active" : ""}"><span class="icon">${n.icon}</span>${n.label}</a>`).join("")}
+      ${adaMenuLain ? `<a href="#/menu" class="${menuAktif ? "active" : ""}"><span class="icon">☰</span>Menu</a>` : ""}
     </nav>
   `;
 }
@@ -74,7 +85,7 @@ function judulHalaman(key) {
   const map = {
     dashboard: "Beranda", presensi: "Presensi", hafalan: "Hafalan Al-Qur'an",
     santri: "Data Santri", master: "Data Master", prestasi: "Prestasi Santri",
-    laporan: "Laporan", akun: "Kelola Akun"
+    laporan: "Laporan", akun: "Kelola Akun", jurnal: "Jurnal Mengajar", jam: "Jam Pelajaran", menu: "Semua Menu"
   };
   return map[key] || "SIM Santri";
 }
@@ -211,6 +222,7 @@ Router.add("presensi", async (root) => {
   const main = document.querySelector("main.content");
   const profil = Auth.getProfil();
   const isPimpinan = profil.peran === "pimpinan";
+  const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
   const isSekolah = profil.peran === "guru_mapel" || profil.peran === "admin";
   const isTpq = profil.peran === "pengajar_tpq" || profil.peran === "admin";
 
@@ -255,7 +267,8 @@ Router.add("presensi", async (root) => {
           </div>
           <div class="field">
             <label>Mata Pelajaran / Materi</label>
-            <input type="text" id="p-mapel" value="${profil.mapel || ""}" placeholder="mis. Matematika, Tahsin">
+            <input type="text" id="p-mapel" list="p-mapel-list" value="${mapelSaya.length === 1 ? esc(mapelSaya[0]) : ""}" placeholder="${mapelSaya.length > 1 ? "Pilih mapel Anda" : "mis. Matematika, Tahsin"}">
+            <datalist id="p-mapel-list">${mapelSaya.map(m => `<option value="${esc(m)}"></option>`).join("")}</datalist>
           </div>
         </div>
         <button class="btn btn-primary btn-block" id="btn-muat-presensi">Muat Daftar Santri</button>
@@ -766,6 +779,7 @@ const MASTER_TABS = [
   { key: "kelas", label: "Kelas", fields: [{ id: "nama_kelas", label: "Nama Kelas" }, { id: "wali_kelas", label: "Wali Kelas" }] },
   { key: "kelompok", label: "Kelompok PTQ", fields: [{ id: "nama_kelompok", label: "Nama Kelompok" }, { id: "pengajar", label: "Pengajar" }] },
   { key: "kamar", label: "Kamar", fields: [{ id: "nama_kamar", label: "Nama Kamar" }, { id: "kapasitas", label: "Kapasitas" }] },
+  { key: "mapel", label: "Mata Pelajaran", fields: [{ id: "nama_mapel", label: "Nama Mata Pelajaran" }] },
   { key: "wali", label: "Wali Santri", fields: [{ id: "nama_wali", label: "Nama Wali" }, { id: "hubungan", label: "Hubungan" }, { id: "kontak", label: "No. WhatsApp" }] }
 ];
 
@@ -1017,16 +1031,18 @@ Router.add("akun", async (root, params) => {
 
   async function muat() {
     try {
-      const [akunRes, kelasRes, kelompokRes, santriRes] = await Promise.all([
+      const [akunRes, kelasRes, kelompokRes, santriRes, mapelRes] = await Promise.all([
         Api.call("akun.list", {}), // daftar akun tidak di-cache (sensitif & sering berubah)
         Ref.kelas(),
         Ref.kelompok(),
-        Ref.santriSemua()
+        Ref.santriSemua(),
+        Ref.mapel()
       ]);
       const akunList = akunRes.items || [];
       const daftarKelas = kelasRes.items || [];
       const daftarKelompok = kelompokRes.items || [];
       const daftarSantri = (santriRes.items || []).filter(s => s.status === "aktif");
+      const daftarMapel = mapelRes.items || [];
       const existing = editingId ? akunList.find(a => a.id === editingId) : null;
       if (editingId && !existing) { Router.go("akun"); return; }
 
@@ -1056,6 +1072,10 @@ Router.add("akun", async (root, params) => {
                 </select>
               </div>
               <div class="field" id="ak-mapel-wrap"><label>Mata Pelajaran / Bidang (opsional)</label><input type="text" id="ak-mapel" value="${v("mapel") || v("bidang")}" placeholder="mis. Matematika, Tahfidz"></div>
+            </div>
+            <div class="field" id="ak-mapel-pilih-wrap" style="display:none;">
+              <label>Mata Pelajaran yang Diampu (bisa pilih lebih dari satu)</label>
+              ${daftarMapel.length === 0 ? `<div class="text-muted text-sm">Belum ada mata pelajaran. Tambahkan dulu di menu Data Master &rarr; tab Mata Pelajaran.</div>` : checkboxGroup("ak-mapel", daftarMapel, "nama_mapel", v("mapel_diampu"))}
             </div>
             <div class="field" id="ak-kelas-wrap" style="display:none;">
               <label>Kelas yang Diampu (bisa pilih lebih dari satu)</label>
@@ -1119,7 +1139,8 @@ Router.add("akun", async (root, params) => {
         document.getElementById("ak-kelompok-wrap").style.display = p === "pengajar_tpq" ? "block" : "none";
         document.getElementById("ak-wali-wrap").style.display = p === "guru_mapel" ? "block" : "none";
         document.getElementById("ak-santri-anak-wrap").style.display = p === "wali_santri" ? "block" : "none";
-        document.getElementById("ak-mapel-wrap").style.display = p === "wali_santri" ? "none" : "block";
+        document.getElementById("ak-mapel-wrap").style.display = (p === "wali_santri" || p === "guru_mapel") ? "none" : "block";
+        document.getElementById("ak-mapel-pilih-wrap").style.display = p === "guru_mapel" ? "block" : "none";
       }
       peranSelect.addEventListener("change", toggleRefFields);
       toggleRefFields();
@@ -1143,8 +1164,9 @@ Router.add("akun", async (root, params) => {
             nama: document.getElementById("ak-nama").value,
             username: document.getElementById("ak-username").value,
             peran: peranSelect.value,
-            mapel: document.getElementById("ak-mapel").value,
-            bidang: document.getElementById("ak-mapel").value,
+            mapel: peranSelect.value === "guru_mapel" ? "" : document.getElementById("ak-mapel").value,
+            bidang: peranSelect.value === "guru_mapel" ? "" : document.getElementById("ak-mapel").value,
+            mapel_diampu: peranSelect.value === "guru_mapel" ? ambilChecklist("ak-mapel") : "",
             kelas_diampu: peranSelect.value === "guru_mapel" ? ambilChecklist("ak-kelas") : "",
             kelompok_diampu: peranSelect.value === "pengajar_tpq" ? ambilChecklist("ak-kelompok") : "",
             wali_kelas_id: peranSelect.value === "guru_mapel" ? document.getElementById("ak-wali-kelas").value : "",
@@ -1243,9 +1265,9 @@ async function pasangPesanWidget(container, idSantri) {
             const milikSaya = p.dari_peran === profil.peran && p.dari_nama === profil.nama;
             return `<div style="align-self:${milikSaya ? "flex-end" : "flex-start"};max-width:80%;">
               <div style="background:${milikSaya ? "var(--emerald-surface)" : "#F1F5F9"};border-radius:12px;padding:8px 12px;font-size:13px;">
-                ${p.isi}
+                ${esc(p.isi)}
               </div>
-              <div class="text-muted" style="font-size:10px;margin-top:2px;${milikSaya ? "text-align:right;" : ""}">${p.dari_nama} (${labelPeran(p.dari_peran)}) &middot; ${bubbleWaktu(p.waktu)}</div>
+              <div class="text-muted" style="font-size:10px;margin-top:2px;${milikSaya ? "text-align:right;" : ""}">${esc(p.dari_nama)} (${labelPeran(p.dari_peran)}) &middot; ${bubbleWaktu(p.waktu)}</div>
             </div>`;
           }).join("")}
         </div>`;
@@ -1553,3 +1575,270 @@ function matrixAnakBulanIni(data, bulan) {
   ];
   return renderMatrixTable(items, jumlahHari, "presensi");
 }
+
+// ======================= SEMUA MENU (untuk HP) =======================
+
+Router.add("menu", async (root) => {
+  const items = NAV_ITEMS.filter(navBolehTampil);
+  root.innerHTML = Shell("menu", `<div class="menu-grid">${items.map(n =>
+    `<a class="menu-tile" href="#/${n.key}"><div class="menu-ico">${n.icon}</div>${n.label}</a>`).join("")}</div>`);
+});
+
+// ======================= JURNAL MENGAJAR =======================
+
+function labelJamSlot(s) {
+  return s.mulai ? `${s.label} (${s.mulai}${s.selesai ? "–" + s.selesai : ""})` : s.label;
+}
+
+Router.add("jurnal", async (root) => {
+  root.innerHTML = Shell("jurnal", `<div class="loading">Memuat...</div>`);
+  const main = document.querySelector("main.content");
+  const profil = Auth.getProfil();
+  const penginput = profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq";
+  const pemantau = !penginput; // admin & pimpinan: melihat semua jurnal
+
+  try {
+    const [jamRes, kelasRes, kelompokRes] = await Promise.all([Ref.jam(), Ref.kelas(), Ref.kelompok()]);
+    const slotJam = (jamRes.items || []).filter(s => s.jenis === "jam");
+
+    let refList = [], refLabel = "", refField = "";
+    if (profil.peran === "guru_mapel") {
+      const d = (profil.kelas_diampu || "").split(",");
+      refList = (kelasRes.items || []).filter(k => d.indexOf(k.id) !== -1);
+      refLabel = "Kelas"; refField = "nama_kelas";
+    } else if (profil.peran === "pengajar_tpq") {
+      const d = (profil.kelompok_diampu || "").split(",");
+      refList = (kelompokRes.items || []).filter(k => d.indexOf(k.id) !== -1);
+      refLabel = "Kelompok PTQ"; refField = "nama_kelompok";
+    }
+    const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
+
+    const formHtml = !penginput ? "" : `
+      <div class="card">
+        <h3>Isi Jurnal Mengajar</h3>
+        <form id="form-jurnal">
+          <div class="grid-2">
+            <div class="field"><label>Tanggal</label><input type="date" id="jr-tanggal" value="${new Date().toISOString().slice(0, 10)}" required></div>
+            <div class="field"><label>${refLabel}</label>
+              <select id="jr-ref" required>${refList.length === 0 ? `<option value="">(belum ditugaskan)</option>` : refList.map(k => `<option value="${k.id}">${esc(k[refField])}</option>`).join("")}</select>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field"><label>Jam ke-</label>
+              ${slotJam.length === 0
+                ? `<input type="text" id="jr-jam" placeholder="mis. Jam ke-1" required>`
+                : `<select id="jr-jam" required>${slotJam.map(s => `<option value="${esc(s.label)}">${esc(labelJamSlot(s))}</option>`).join("")}</select>`}
+            </div>
+            <div class="field"><label>Mata Pelajaran</label>
+              ${mapelSaya.length > 0
+                ? `<select id="jr-mapel" required>${mapelSaya.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("")}</select>`
+                : `<input type="text" id="jr-mapel" placeholder="mis. Tahfidz" required>`}
+            </div>
+          </div>
+          <div class="field"><label>Materi yang Diajarkan</label><textarea id="jr-materi" rows="3" required placeholder="Tuliskan materi/pokok bahasan hari ini"></textarea></div>
+          <div class="field"><label>Catatan (opsional)</label><input type="text" id="jr-catatan" placeholder="mis. tugas, kendala, santri yang perlu perhatian"></div>
+          <button class="btn btn-primary btn-block" type="submit">Simpan Jurnal</button>
+          <div id="jr-pesan" class="mt-1"></div>
+        </form>
+      </div>`;
+
+    main.innerHTML = `
+      ${formHtml}
+      <div class="card">
+        <h3>${pemantau ? "Pantauan Jurnal Guru" : "Jurnal Saya"}</h3>
+        <div class="grid-2">
+          <div class="field"><label>Bulan</label><input type="month" id="jr-bulan" value="${bulanIniStr()}"></div>
+          ${pemantau ? `<div class="field"><label>Guru</label><select id="jr-guru"><option value="">Semua guru</option></select></div>` : ""}
+        </div>
+        <div id="jr-ringkasan"></div>
+        <div id="jr-list"><div class="loading">Memuat jurnal...</div></div>
+      </div>`;
+
+    let semuaItems = [];
+
+    function gambarList() {
+      const listEl = document.getElementById("jr-list");
+      const guruTerpilih = pemantau ? document.getElementById("jr-guru").value : "";
+      const items = guruTerpilih ? semuaItems.filter(j => String(j.id_guru) === guruTerpilih) : semuaItems;
+
+      if (pemantau) {
+        const per = {};
+        semuaItems.forEach(j => {
+          const k = per[j.id_guru] || (per[j.id_guru] = { nama: j.nama_guru, jumlah: 0, hari: {} });
+          k.jumlah++; k.hari[j.tanggal] = true;
+        });
+        const baris = Object.keys(per).map(id => per[id]).sort((a, b) => b.jumlah - a.jumlah);
+        document.getElementById("jr-ringkasan").innerHTML = baris.length === 0 ? "" : `
+          <div class="text-muted text-sm mb-1">Ringkasan bulan ini: jumlah jurnal yang sudah diisi tiap guru.</div>
+          <div class="table-wrap mb-1"><table class="data-table">
+            <tr><th>Guru</th><th>Jumlah Jurnal</th><th>Hari Mengisi</th></tr>
+            ${baris.map(b => `<tr><td>${esc(b.nama)}</td><td>${b.jumlah}</td><td>${Object.keys(b.hari).length}</td></tr>`).join("")}
+          </table></div>`;
+      }
+
+      if (items.length === 0) { listEl.innerHTML = `<div class="empty-state">Belum ada jurnal pada bulan ini.</div>`; return; }
+      listEl.innerHTML = `<div class="table-wrap"><table class="data-table">
+        <tr><th>Tanggal</th><th>Jam</th><th>${pemantau ? "Guru" : "Kelas/Kelompok"}</th>${pemantau ? "<th>Kelas/Kelompok</th>" : ""}<th>Mapel</th><th>Materi</th><th>Catatan</th>${penginput || Auth.boleh("admin") ? "<th></th>" : ""}</tr>
+        ${items.map(j => `<tr>
+          <td style="white-space:nowrap;">${esc(j.tanggal)}</td>
+          <td style="white-space:nowrap;">${esc(j.jam_ke)}</td>
+          <td>${esc(pemantau ? j.nama_guru : j.nama_ref)}</td>
+          ${pemantau ? `<td>${esc(j.nama_ref)}</td>` : ""}
+          <td>${esc(j.mapel)}</td>
+          <td style="min-width:180px;">${esc(j.materi)}</td>
+          <td>${esc(j.catatan) || "-"}</td>
+          ${penginput || Auth.boleh("admin") ? `<td><button class="btn btn-danger btn-sm" onclick="hapusJurnal('${esc(j.id)}')">Hapus</button></td>` : ""}
+        </tr>`).join("")}
+      </table></div>`;
+    }
+
+    async function muatJurnal() {
+      const listEl = document.getElementById("jr-list");
+      listEl.innerHTML = `<div class="loading">Memuat jurnal...</div>`;
+      try {
+        const data = await Api.call("jurnal.list", { bulan: document.getElementById("jr-bulan").value });
+        semuaItems = data.items || [];
+        if (pemantau) {
+          const sel = document.getElementById("jr-guru");
+          const dipilih = sel.value;
+          const guru = {};
+          semuaItems.forEach(j => { guru[j.id_guru] = j.nama_guru; });
+          sel.innerHTML = `<option value="">Semua guru</option>` + Object.keys(guru).map(id => `<option value="${esc(id)}" ${id === dipilih ? "selected" : ""}>${esc(guru[id])}</option>`).join("");
+        }
+        gambarList();
+      } catch (err) { tampilkanGalat(listEl, err); }
+    }
+    window.__muatJurnal = muatJurnal;
+
+    document.getElementById("jr-bulan").addEventListener("change", muatJurnal);
+    if (pemantau) document.getElementById("jr-guru").addEventListener("change", gambarList);
+
+    if (penginput) {
+      document.getElementById("form-jurnal").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector("button[type=submit]");
+        const pesanEl = document.getElementById("jr-pesan");
+        btn.disabled = true; btn.textContent = "Menyimpan...";
+        pesanEl.innerHTML = "";
+        try {
+          await Api.call("jurnal.save", { data: {
+            tanggal: document.getElementById("jr-tanggal").value,
+            id_ref: document.getElementById("jr-ref").value,
+            jam_ke: document.getElementById("jr-jam").value,
+            mapel: document.getElementById("jr-mapel").value,
+            materi: document.getElementById("jr-materi").value,
+            catatan: document.getElementById("jr-catatan").value
+          } });
+          document.getElementById("jr-materi").value = "";
+          document.getElementById("jr-catatan").value = "";
+          pesanEl.innerHTML = `<div class="alert alert-success">Jurnal tersimpan.</div>`;
+          muatJurnal();
+        } catch (err) {
+          pesanEl.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+        } finally {
+          btn.disabled = false; btn.textContent = "Simpan Jurnal";
+        }
+      });
+    }
+
+    await muatJurnal();
+  } catch (err) { tampilkanGalat(main, err); }
+});
+
+window.hapusJurnal = async function (id) {
+  if (!confirm("Hapus jurnal ini?")) return;
+  try { await Api.call("jurnal.hapus", { id }); window.__muatJurnal(); } catch (err) { alert(err.message); }
+};
+
+// ======================= PENGATURAN JAM PELAJARAN =======================
+
+const JENIS_JAM_LABEL = { jam: "Jam Pelajaran", istirahat: "Istirahat", pulang: "Pulang" };
+
+Router.add("jam", async (root, params) => {
+  root.innerHTML = Shell("jam", `<div class="loading">Memuat...</div>`);
+  const main = document.querySelector("main.content");
+  const isAdmin = Auth.boleh("admin");
+  try {
+    const data = await Api.call("jam.list", {}); // selalu data terbaru agar hasil perubahan langsung terlihat
+    const items = data.items || [];
+    const edit = params.edit ? items.find(i => i.id === params.edit) : null;
+    const slotPulang = items.find(i => i.jenis === "pulang");
+    const urutanDefault = edit ? edit.urutan : (slotPulang ? slotPulang.urutan : items.length + 1);
+    const v = (f, d) => edit ? (edit[f] || d || "") : (d || "");
+
+    main.innerHTML = `
+      <div class="card">
+        <h3>Jadwal Jam Pelajaran</h3>
+        <div class="text-muted text-sm mb-1">Urutan jam mengajar, istirahat, dan pulang. Jam ini muncul sebagai pilihan "Jam ke-" saat guru mengisi jurnal.</div>
+        <div class="table-wrap"><table class="data-table">
+          <tr><th>No</th><th>Jenis</th><th>Nama</th><th>Mulai</th><th>Selesai</th>${isAdmin ? "<th></th>" : ""}</tr>
+          ${items.map(s => `<tr>
+            <td>${esc(s.urutan)}</td><td>${JENIS_JAM_LABEL[s.jenis] || esc(s.jenis)}</td><td><b>${esc(s.label)}</b></td>
+            <td>${esc(s.mulai) || "-"}</td><td>${esc(s.selesai) || "-"}</td>
+            ${isAdmin ? `<td style="white-space:nowrap;">
+              <button class="btn btn-secondary btn-sm" onclick="Router.go('jam',{edit:'${esc(s.id)}'})">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="hapusJam('${esc(s.id)}')">Hapus</button>
+            </td>` : ""}
+          </tr>`).join("")}
+        </table></div>
+      </div>
+
+      ${isAdmin ? `
+      <div class="card">
+        <h3>${edit ? "Edit Slot: " + esc(edit.label) : "Tambah Slot Baru"}</h3>
+        <form id="form-jam">
+          <div class="grid-2">
+            <div class="field"><label>Jenis</label>
+              <select id="jm-jenis">
+                ${Object.keys(JENIS_JAM_LABEL).map(k => `<option value="${k}" ${v("jenis", "jam") === k ? "selected" : ""}>${JENIS_JAM_LABEL[k]}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field"><label>Nama (kosongkan = otomatis, mis. "Jam ke-2")</label><input type="text" id="jm-label" value="${esc(v("label"))}"></div>
+          </div>
+          <div class="grid-2">
+            <div class="field"><label>Mulai</label><input type="time" id="jm-mulai" value="${esc(v("mulai"))}"></div>
+            <div class="field"><label>Selesai</label><input type="time" id="jm-selesai" value="${esc(v("selesai"))}"></div>
+          </div>
+          <div class="field"><label>Posisi urutan</label><input type="number" id="jm-urutan" min="1" value="${esc(urutanDefault)}">
+            <div class="text-muted text-sm mt-1">Slot disisipkan di posisi ini dan nomor lainnya bergeser otomatis. Bawaan: tepat sebelum "Pulang".</div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit">${edit ? "Simpan Perubahan" : "Tambah Slot"}</button>
+          ${edit ? `<button type="button" class="btn btn-secondary btn-block mt-1" onclick="Router.go('jam')">Batal Edit</button>` : ""}
+          <div id="jm-pesan" class="mt-1"></div>
+        </form>
+      </div>` : ""}
+    `;
+
+    if (isAdmin) {
+      document.getElementById("form-jam").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector("button[type=submit]");
+        btn.disabled = true;
+        try {
+          await Api.call("jam.save", { data: {
+            id: edit ? edit.id : undefined,
+            jenis: document.getElementById("jm-jenis").value,
+            label: document.getElementById("jm-label").value,
+            mulai: document.getElementById("jm-mulai").value,
+            selesai: document.getElementById("jm-selesai").value,
+            urutan: document.getElementById("jm-urutan").value
+          } });
+          RefCache.invalidate("jam");
+          if (params.edit) Router.go("jam"); else Router.render();
+        } catch (err) {
+          document.getElementById("jm-pesan").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+          btn.disabled = false;
+        }
+      });
+    }
+  } catch (err) { tampilkanGalat(main, err); }
+});
+
+window.hapusJam = async function (id) {
+  if (!confirm("Hapus slot jam ini? Jurnal lama tetap tersimpan.")) return;
+  try {
+    await Api.call("jam.hapus", { id });
+    RefCache.invalidate("jam");
+    Router.render();
+  } catch (err) { alert(err.message); }
+};

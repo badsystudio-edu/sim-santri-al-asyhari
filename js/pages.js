@@ -18,11 +18,12 @@ function navBolehTampil(item) {
 }
 
 function avatarKecil(profil, ukuran) {
+  // Foto dimuat belakangan oleh foto.js (hidrasiFoto) memakai atribut data-foto-*;
+  // sebelum foto tiba (atau jika tidak punya foto) yang tampil adalah huruf inisial.
   const inisial = profil && profil.nama ? profil.nama.trim().charAt(0).toUpperCase() : "?";
-  if (profil && profil.url_foto) {
-    return `<img src="${profil.url_foto}" alt="Foto" style="width:${ukuran}px;height:${ukuran}px;border-radius:50%;object-fit:cover;background:#fff;" onerror="this.outerHTML='<div style=&quot;width:${ukuran}px;height:${ukuran}px;border-radius:50%;background:var(--emerald-deep);color:#fff;display:flex;align-items:center;justify-content:center;font-size:${Math.round(ukuran*0.4)}px;font-weight:700;&quot;>${inisial}</div>'">`;
-  }
-  return `<div style="width:${ukuran}px;height:${ukuran}px;border-radius:50%;background:var(--emerald-deep);color:#fff;display:flex;align-items:center;justify-content:center;font-size:${Math.round(ukuran * 0.4)}px;font-weight:700;">${inisial}</div>`;
+  const punyaFoto = profil && profil.id && profil.url_foto && String(profil.url_foto).indexOf("db:") === 0;
+  const atribut = punyaFoto ? ` data-foto-id="${profil.id}" data-foto-v="${profil.url_foto}"` : "";
+  return `<div${atribut} style="width:${ukuran}px;height:${ukuran}px;border-radius:50%;background:var(--emerald-deep);color:#fff;display:flex;align-items:center;justify-content:center;font-size:${Math.round(ukuran * 0.4)}px;font-weight:700;flex-shrink:0;overflow:hidden;">${inisial}</div>`;
 }
 
 function Shell(activeKey, innerHtml) {
@@ -95,6 +96,8 @@ function chipTipe(tipe) {
 async function logoutSekarang() {
   try { await Api.call("logout", {}); } catch (e) { /* abaikan */ }
   Auth.clear();
+  RefCache.invalidateAll();
+  FotoStore.hapusSemua();
   Router.go("login");
 }
 
@@ -160,6 +163,8 @@ Router.add("dashboard", async (root) => {
   } catch (err) {
     if (!cacheLama) tampilkanGalat(main, err); // sudah ada tampilan dari cache, jangan timpa dengan galat
   }
+  const wadahMatrix = document.getElementById("dash-matrix");
+  if (wadahMatrix) renderDashboardMatrix(wadahMatrix).catch(err => tampilkanGalat(wadahMatrix, err));
 });
 
 function renderDashboard(d) {
@@ -195,6 +200,7 @@ function renderDashboard(d) {
         <div style="font-size:28px;font-weight:700;color:var(--gold);">Juz ${d.rata_rata_progres_juz}</div>
         <div class="text-muted text-sm">Rata-rata capaian juz tertinggi santri yang sudah tercatat</div>
       </div>
+      <div id="dash-matrix"></div>
   `;
 }
 
@@ -578,7 +584,7 @@ Router.add("santri", async (root, params) => {
           <div class="card" style="cursor:pointer;" onclick="Router.go('santri', {id:'${s.id}'})">
             <div class="flex-between">
               <div class="flex gap-1" style="align-items:center;">
-                ${avatarKecil({ nama: s.nama, url_foto: s.url_foto }, 44)}
+                ${avatarKecil({ id: s.id, nama: s.nama, url_foto: s.url_foto }, 44)}
                 <div>
                   <div style="font-weight:700;">${s.nama}</div>
                   <div class="text-muted text-sm">NIS ${s.nis}</div>
@@ -611,7 +617,7 @@ async function renderSantriDetail(root, id) {
       <div class="card">
         <div class="flex-between">
           <div class="flex gap-1" style="align-items:center;">
-            ${avatarKecil({ nama: s.nama, url_foto: s.url_foto }, 56)}
+            ${avatarKecil({ id: s.id, nama: s.nama, url_foto: s.url_foto }, 56)}
             <div>
               <h3 style="margin:0;">${s.nama}</h3>
               <div class="text-muted text-sm">NIS ${s.nis} &bull; ${s.jenis_kelamin === "L" ? "Laki-laki" : "Perempuan"}</div>
@@ -690,11 +696,21 @@ async function renderSantriForm(root, editId) {
             <div class="field"><label>Kelompok PTQ</label><select id="f-kelompok"><option value="">-</option>${kelompokData.items.map(k => `<option value="${k.id}" ${v("id_kelompok") === k.id ? "selected" : ""}>${k.nama_kelompok}</option>`).join("")}</select></div>
           </div>
           <div class="field"><label>Kamar</label><select id="f-kamar"><option value="">-</option>${kamarData.items.map(k => `<option value="${k.id}" ${v("id_kamar") === k.id ? "selected" : ""}>${k.nama_kamar}</option>`).join("")}</select></div>
-          <div class="field"><label>Foto (opsional)</label><input type="file" id="f-foto" accept="image/*"></div>
+          <div class="field"><label>Foto (opsional, otomatis dikecilkan)</label><div id="f-foto-preview" style="margin-bottom:6px;"></div><input type="file" id="f-foto" accept="image/*"></div>
           <button class="btn btn-primary btn-block" type="submit">Simpan</button>
         </form>
       </div>
     `;
+
+    document.getElementById("f-foto").addEventListener("change", async (e) => {
+      const f = e.target.files[0];
+      const prev = document.getElementById("f-foto-preview");
+      if (!f) { prev.innerHTML = ""; return; }
+      try {
+        const hasil = await kompresFoto(f);
+        prev.innerHTML = `<img src="${hasil}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;"> <span class="text-muted text-sm">${Math.round(hasil.length / 1024)} KB setelah dikecilkan</span>`;
+      } catch (err) { prev.innerHTML = `<div class="alert alert-error">${err.message}</div>`; }
+    });
 
     document.getElementById("form-santri").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -717,7 +733,7 @@ async function renderSantriForm(root, editId) {
         const fotoFile = document.getElementById("f-foto").files[0];
         const payload = { data };
         if (fotoFile) {
-          payload.foto_base64 = await fileToBase64(fotoFile);
+          payload.foto_base64 = await kompresFoto(fotoFile);
           payload.foto_nama = fotoFile.name;
         }
         const res = await Api.call("santri.save", payload);
@@ -1021,7 +1037,7 @@ Router.add("akun", async (root, params) => {
           <h3>${existing ? "Edit Akun: " + existing.nama : "Buat Akun Baru"}</h3>
           <form id="form-akun">
             <div class="field" style="text-align:center;">
-              <div id="ak-foto-preview" style="margin-bottom:8px;">${existing && existing.url_foto ? avatarKecil({ nama: existing.nama, url_foto: existing.url_foto }, 72) : ""}</div>
+              <div id="ak-foto-preview" style="margin-bottom:8px;">${existing && existing.url_foto ? avatarKecil({ id: existing.id, nama: existing.nama, url_foto: existing.url_foto }, 72) : ""}</div>
               <label>Foto (opsional)</label>
               <input type="file" id="ak-foto" accept="image/*">
             </div>
@@ -1083,7 +1099,7 @@ Router.add("akun", async (root, params) => {
           <div class="table-wrap"><table class="data-table">
             <tr><th></th><th>Nama</th><th>Username</th><th>Peran</th><th>Status</th><th>Aksi</th></tr>
             ${akunList.map(a => `<tr>
-              <td>${avatarKecil({ nama: a.nama, url_foto: a.url_foto }, 30)}</td>
+              <td>${avatarKecil({ id: a.id, nama: a.nama, url_foto: a.url_foto }, 30)}</td>
               <td>${a.nama}${a.mapel ? `<div class="text-muted text-sm">${a.mapel}</div>` : ""}</td>
               <td>${a.username}</td><td>${labelPeran(a.peran)}</td>
               <td>${a.status === "aktif" ? `<span class="chip chip-hadir">Aktif</span>` : `<span class="chip chip-nonaktif">Nonaktif</span>`}</td>
@@ -1108,6 +1124,16 @@ Router.add("akun", async (root, params) => {
       peranSelect.addEventListener("change", toggleRefFields);
       toggleRefFields();
 
+      document.getElementById("ak-foto").addEventListener("change", async (e) => {
+        const f = e.target.files[0];
+        const prev = document.getElementById("ak-foto-preview");
+        if (!f) return;
+        try {
+          const hasil = await kompresFoto(f);
+          prev.innerHTML = `<img src="${hasil}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;"><div class="text-muted text-sm">${Math.round(hasil.length / 1024)} KB setelah dikecilkan</div>`;
+        } catch (err) { prev.innerHTML = `<div class="alert alert-error">${err.message}</div>`; }
+      });
+
       document.getElementById("form-akun").addEventListener("submit", async (e) => {
         e.preventDefault();
         const btn = e.target.querySelector("button[type=submit]");
@@ -1129,7 +1155,7 @@ Router.add("akun", async (root, params) => {
           }
           const payload = { data: dataAkun };
           const fotoFile = document.getElementById("ak-foto").files[0];
-          if (fotoFile) { payload.foto_base64 = await fileToBase64(fotoFile); payload.foto_nama = fotoFile.name; }
+          if (fotoFile) { payload.foto_base64 = await kompresFoto(fotoFile); payload.foto_nama = fotoFile.name; }
 
           if (existing) {
             dataAkun.id = existing.id;
@@ -1260,9 +1286,14 @@ Router.add("anaksaya", async (root) => {
     const s = data.santri;
     main.innerHTML = `
       <div class="card" style="text-align:center;">
-        <div style="margin:0 auto 10px;">${avatarKecil({ nama: s.nama, url_foto: s.url_foto }, 96)}</div>
+        <div style="margin:0 auto 10px;">${avatarKecil({ id: s.id, nama: s.nama, url_foto: s.url_foto }, 96)}</div>
         <h3 style="margin:0;font-size:20px;">${s.nama}</h3>
         <div class="text-muted text-sm">NIS ${s.nis} &bull; ${chipTipe(s.tipe)}</div>
+      </div>
+
+      <div class="card">
+        <h3>Tabel Pemantauan Bulan Ini (${namaBulanIndo(bulanIniStr())})</h3>
+        ${matrixAnakBulanIni(data, bulanIniStr())}
       </div>
 
       <div class="card">
@@ -1363,7 +1394,10 @@ function renderRekapBulananCard(container, jenisRekap, opsi) {
     const bulan = document.getElementById("rb-bulan").value;
     hasilEl.innerHTML = `<div class="loading">Memuat rekap...</div>`;
     try {
-      const data = await Api.call("rekap.bulanan", { jenis: jenisRekap, ref_type: refType, ref_id: refId, bulan });
+      const [data, grid] = await Promise.all([
+        Api.call("rekap.bulanan", { jenis: jenisRekap, ref_type: refType, ref_id: refId, bulan }),
+        Api.call("rekap.grid", { jenis: jenisRekap, ref_type: refType, ref_id: refId, bulan })
+      ]);
       if (data.items.length === 0) {
         hasilEl.innerHTML = `<div class="empty-state">Belum ada santri pada kelas/kelompok ini.</div>`;
         return;
@@ -1379,6 +1413,8 @@ function renderRekapBulananCard(container, jenisRekap, opsi) {
           ${data.items.map(it => `<tr><td>${it.nama}</td><td>${it.jumlah_setoran}</td><td>Juz ${it.juz_tertinggi_bulan_ini}</td></tr>`).join("")}
         </table></div>`;
       }
+      hasilEl.innerHTML += `<h4 style="margin:16px 0 4px;color:var(--emerald-deep);">Tabel Harian (tanggal 1&ndash;${grid.jumlah_hari})</h4>` +
+        renderMatrixTable(grid.items, grid.jumlah_hari, jenisRekap);
     } catch (err) {
       tampilkanGalat(hasilEl, err);
     }
@@ -1407,4 +1443,113 @@ function renderRekapBulananCard(container, jenisRekap, opsi) {
       btn.disabled = false; btn.textContent = "Cetak PDF";
     }
   });
+}
+
+// ======================= TABEL PEMANTAUAN HARIAN (nama x tanggal 1..akhir bulan) =======================
+
+// items: [{ nama, harian: {1:'Hadir', 5:'Sakit'} | {3: 12}, jenis?: 'presensi'|'hafalan' }]
+function renderMatrixTable(items, jumlahHari, jenisDefault) {
+  const hari = Array.from({ length: jumlahHari }, (_, i) => i + 1);
+  const huruf = { Hadir: "H", Sakit: "S", Izin: "I", Alpa: "A" };
+  function sel(jenis, nilai) {
+    if (!nilai) return "";
+    if (jenis === "hafalan") return `<span class="sel-hari sel-juz" title="Juz ${nilai}">${nilai}</span>`;
+    const h = huruf[nilai] || "?";
+    return `<span class="sel-hari sel-${h}" title="${nilai}">${h}</span>`;
+  }
+  if (!items || items.length === 0) return `<div class="empty-state">Belum ada santri pada pilihan ini.</div>`;
+  return `
+    <div class="legenda-matrix">
+      ${jenisDefault === "hafalan" || items.some(i => i.jenis === "hafalan") ? `<span><span class="sel-hari sel-juz">12</span> = juz tertinggi disetor hari itu</span>` : ""}
+      ${jenisDefault !== "hafalan" || items.some(i => i.jenis === "presensi") ? `<span><span class="sel-hari sel-H">H</span> Hadir</span><span><span class="sel-hari sel-S">S</span> Sakit</span><span><span class="sel-hari sel-I">I</span> Izin</span><span><span class="sel-hari sel-A">A</span> Alpa</span>` : ""}
+      <span>(kosong = belum ada catatan)</span>
+    </div>
+    <div class="table-wrap"><table class="matrix">
+      <tr><th>Nama</th>${hari.map(h => `<th>${h}</th>`).join("")}</tr>
+      ${items.map(it => {
+        const jenis = it.jenis || jenisDefault;
+        return `<tr><td title="${it.nama}">${it.nama}</td>${hari.map(h => `<td>${sel(jenis, it.harian[h])}</td>`).join("")}</tr>`;
+      }).join("")}
+    </table></div>`;
+}
+
+// Kartu tabel pemantauan di Beranda untuk peran staf (admin, guru, pengajar, pimpinan).
+async function renderDashboardMatrix(container) {
+  const profil = Auth.getProfil();
+  const [kelasRes, kelompokRes] = await Promise.all([Ref.kelas(), Ref.kelompok()]);
+  let kelas = kelasRes.items || [];
+  let kelompok = kelompokRes.items || [];
+  if (profil.peran === "guru_mapel") {
+    const d = (profil.kelas_diampu || "").split(",");
+    kelas = kelas.filter(k => d.indexOf(k.id) !== -1);
+  }
+  if (profil.peran === "pengajar_tpq") {
+    const d = (profil.kelompok_diampu || "").split(",");
+    kelompok = kelompok.filter(k => d.indexOf(k.id) !== -1);
+  }
+  const sekolahOk = ["admin", "guru_mapel", "pimpinan"].indexOf(profil.peran) !== -1 && kelas.length > 0;
+  const ptqOk = ["admin", "pengajar_tpq", "pimpinan"].indexOf(profil.peran) !== -1 && kelompok.length > 0;
+
+  const opsi = [];
+  if (sekolahOk) opsi.push({ v: "presensi|kelas", t: "Presensi Sekolah Pagi" });
+  if (ptqOk) { opsi.push({ v: "presensi|kelompok", t: "Presensi PTQ" }); opsi.push({ v: "hafalan|kelompok", t: "Hafalan" }); }
+  if (opsi.length === 0) { container.innerHTML = ""; return; }
+
+  container.innerHTML = `
+    <div class="card">
+      <h3>Tabel Pemantauan Bulanan</h3>
+      <div class="grid-2">
+        <div class="field"><label>Tampilan</label><select id="dm-jenis">${opsi.map(o => `<option value="${o.v}">${o.t}</option>`).join("")}</select></div>
+        <div class="field"><label id="dm-ref-label">Kelas</label><select id="dm-ref"></select></div>
+      </div>
+      <div class="field"><label>Bulan</label><input type="month" id="dm-bulan" value="${bulanIniStr()}"></div>
+      <div id="dm-hasil"><div class="loading">Memuat tabel...</div></div>
+    </div>`;
+
+  function isiRef() {
+    const [, refType] = document.getElementById("dm-jenis").value.split("|");
+    const daftar = refType === "kelas" ? kelas : kelompok;
+    document.getElementById("dm-ref-label").textContent = refType === "kelas" ? "Kelas" : "Kelompok PTQ";
+    document.getElementById("dm-ref").innerHTML = daftar.map(d => `<option value="${d.id}">${refType === "kelas" ? d.nama_kelas : d.nama_kelompok}</option>`).join("");
+  }
+
+  async function muat() {
+    const hasilEl = document.getElementById("dm-hasil");
+    const [jenis, refType] = document.getElementById("dm-jenis").value.split("|");
+    const refId = document.getElementById("dm-ref").value;
+    if (!refId) { hasilEl.innerHTML = ""; return; }
+    hasilEl.innerHTML = `<div class="loading">Memuat tabel...</div>`;
+    try {
+      const data = await Api.call("rekap.grid", { jenis, ref_type: refType, ref_id: refId, bulan: document.getElementById("dm-bulan").value });
+      hasilEl.innerHTML = renderMatrixTable(data.items, data.jumlah_hari, jenis);
+    } catch (err) { tampilkanGalat(hasilEl, err); }
+  }
+
+  document.getElementById("dm-jenis").addEventListener("change", () => { isiRef(); muat(); });
+  document.getElementById("dm-ref").addEventListener("change", muat);
+  document.getElementById("dm-bulan").addEventListener("change", muat);
+  isiRef();
+  await muat();
+}
+
+// Tabel pemantauan satu anak (untuk wali) dihitung langsung dari data yang sudah dimuat, tanpa panggilan baru.
+function matrixAnakBulanIni(data, bulan) {
+  const [thn, bln] = bulan.split("-").map(Number);
+  const jumlahHari = new Date(thn, bln, 0).getDate();
+  const harianStatus = (arr) => {
+    const h = {};
+    (arr || []).filter(p => String(p.tanggal).indexOf(bulan) === 0).forEach(p => { h[parseInt(String(p.tanggal).split("-")[2], 10)] = p.status; });
+    return h;
+  };
+  const hafalanH = {};
+  (data.riwayat_hafalan || []).filter(p => String(p.tanggal).indexOf(bulan) === 0).forEach(p => {
+    const d = parseInt(String(p.tanggal).split("-")[2], 10), j = Number(p.juz) || 0;
+    if (!hafalanH[d] || j > hafalanH[d]) hafalanH[d] = j;
+  });
+  const items = [
+    { nama: "Sekolah Pagi", jenis: "presensi", harian: harianStatus(data.riwayat_presensi_sekolah) },
+    { nama: "PTQ", jenis: "presensi", harian: harianStatus(data.riwayat_absensi_tpq) },
+    { nama: "Hafalan (juz)", jenis: "hafalan", harian: hafalanH }
+  ];
+  return renderMatrixTable(items, jumlahHari, "presensi");
 }

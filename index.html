@@ -21,7 +21,9 @@
   <script src="js/foto.js"></script>
   <script src="js/router.js"></script>
   <script src="js/pages.js"></script>
+  <script src="js/pages2.js"></script>
   <script>
+    if (Auth.isLoggedIn() && Auth.peran() === "wali_santri") NotifState.mulai(); // pantau perkembangan anak
     Router.init();
   </script>
 </body>

@@ -10,10 +10,16 @@ const NAV_ITEMS = [
   { key: "anaksaya", label: "Anak Saya", icon: "🧒", roles: ["wali_santri"] },
   { key: "presensi", label: "Presensi", icon: "✅", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "jurnal", label: "Jurnal", icon: "📝", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "nilai", label: "Nilai", icon: "🧮", roles: ["admin", "guru_mapel", "pimpinan"] },
+  { key: "raport", label: "Raport", icon: "📄", roles: ["admin", "guru_mapel", "pimpinan", "wali_santri"] },
   { key: "hafalan", label: "Hafalan", icon: "📖", roles: ["admin", "pengajar_tpq", "pimpinan"] },
   { key: "santri", label: "Santri", icon: "👤", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "pelanggaran", label: "Pelanggaran", icon: "⚠️", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "jumatamal", label: "Jumat Amal", icon: "🤲", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "pengumuman", label: "Pengumuman", icon: "📢", roles: null },
+  { key: "kalender", label: "Kalender", icon: "📅", roles: null },
   { key: "master", label: "Data Master", icon: "🗂️", roles: ["admin", "pimpinan"] },
-  { key: "jam", label: "Jam Pelajaran", icon: "⏰", roles: ["admin", "pimpinan"] },
+  { key: "jam", label: "Pengaturan Akademik", icon: "🛠️", roles: ["admin", "pimpinan"] },
   { key: "prestasi", label: "Prestasi", icon: "🏅", roles: ["admin", "pimpinan"] },
   { key: "laporan", label: "Laporan", icon: "🖨️", roles: ["admin", "pimpinan"] },
   { key: "akun", label: "Akun", icon: "⚙️", roles: ["admin"] }
@@ -68,6 +74,7 @@ function Shell(activeKey, innerHtml) {
           ${avatarKecil(profil, 30)}
           <div class="title">${judulHalaman(activeKey)}</div>
           <div class="spacer"></div>
+          ${profil && profil.peran === "wali_santri" ? `<button class="btn-icon" style="position:relative;margin-right:6px;" onclick="Router.go('notifikasi')" title="Notifikasi">🔔<span id="notif-badge" class="notif-badge" style="display:${NotifState.belum > 0 ? "flex" : "none"};">${NotifState.belum > 9 ? "9+" : NotifState.belum}</span></button>` : ""}
           <button class="btn-icon" onclick="logoutSekarang()" title="Keluar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></button>
         </header>
         <main class="content">${innerHtml}</main>
@@ -85,7 +92,7 @@ function judulHalaman(key) {
   const map = {
     dashboard: "Beranda", presensi: "Presensi", hafalan: "Hafalan Al-Qur'an",
     santri: "Data Santri", master: "Data Master", prestasi: "Prestasi Santri",
-    laporan: "Laporan", akun: "Kelola Akun", jurnal: "Jurnal Mengajar", jam: "Jam Pelajaran", menu: "Semua Menu"
+    laporan: "Laporan", akun: "Kelola Akun", jurnal: "Jurnal Mengajar", jam: "Pengaturan Akademik", menu: "Semua Menu", nilai: "Nilai", raport: "Raport", pelanggaran: "Pelanggaran Santri", jumatamal: "Laporan Jumat Amal", pengumuman: "Pengumuman", kalender: "Kalender Pendidikan", anaksaya: "Anak Saya", notifikasi: "Notifikasi"
   };
   return map[key] || "SIM Santri";
 }
@@ -107,6 +114,7 @@ function chipTipe(tipe) {
 async function logoutSekarang() {
   try { await Api.call("logout", {}); } catch (e) { /* abaikan */ }
   Auth.clear();
+  NotifState.berhenti();
   RefCache.invalidateAll();
   FotoStore.hapusSemua();
   Router.go("login");
@@ -176,6 +184,8 @@ Router.add("dashboard", async (root) => {
   }
   const wadahMatrix = document.getElementById("dash-matrix");
   if (wadahMatrix) renderDashboardMatrix(wadahMatrix).catch(err => tampilkanGalat(wadahMatrix, err));
+  const wadahInfo = document.getElementById("dash-info");
+  if (wadahInfo) renderInfoBeranda(wadahInfo).catch(() => { wadahInfo.innerHTML = ""; });
 });
 
 function renderDashboard(d) {
@@ -212,6 +222,7 @@ function renderDashboard(d) {
         <div class="text-muted text-sm">Rata-rata capaian juz tertinggi santri yang sudah tercatat</div>
       </div>
       <div id="dash-matrix"></div>
+      <div id="dash-info"></div>
   `;
 }
 
@@ -263,7 +274,7 @@ Router.add("presensi", async (root) => {
         <div class="grid-2">
           <div class="field">
             <label>Tanggal</label>
-            <input type="date" id="p-tanggal" value="${new Date().toISOString().slice(0, 10)}">
+            <input type="date" id="p-tanggal" value="${tglHariIni()}">
           </div>
           <div class="field">
             <label>Mata Pelajaran / Materi</label>
@@ -664,6 +675,12 @@ async function renderSantriDetail(root, id) {
           data.riwayat_prestasi.map(p => `<div class="text-sm mb-1"><b>${p.nama_prestasi}</b> &mdash; ${p.tingkat} (${p.tanggal})</div>`).join("")}
       </div>
 
+      <div class="card">
+        <h3>Riwayat Pelanggaran (${(data.riwayat_pelanggaran || []).length})</h3>
+        ${(data.riwayat_pelanggaran || []).length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
+          data.riwayat_pelanggaran.map(p => `<div class="text-sm mb-1"><b>${esc(p.jenis_pelanggaran)}</b> (${fmtTanggal(p.tanggal)}) &mdash; ${esc(p.penanganan)} <span class="text-muted">oleh ${esc(p.penangan)}</span></div>`).join("")}
+      </div>
+
       <div id="pesan-wrap"></div>
     `;
     await pasangPesanWidget(document.getElementById("pesan-wrap"), s.id);
@@ -780,6 +797,8 @@ const MASTER_TABS = [
   { key: "kelompok", label: "Kelompok PTQ", fields: [{ id: "nama_kelompok", label: "Nama Kelompok" }, { id: "pengajar", label: "Pengajar" }] },
   { key: "kamar", label: "Kamar", fields: [{ id: "nama_kamar", label: "Nama Kamar" }, { id: "kapasitas", label: "Kapasitas" }] },
   { key: "mapel", label: "Mata Pelajaran", fields: [{ id: "nama_mapel", label: "Nama Mata Pelajaran" }] },
+  { key: "jenis_ujian", label: "Jenis Ujian", fields: [{ id: "nama", label: "Nama Ujian (mis. PTS Ganjil)" }, { id: "kategori", label: "Kategori", options: ["PTS", "PAS"] }, { id: "semester", label: "Semester", options: ["Ganjil", "Genap"] }] },
+  { key: "jenis_pelanggaran", label: "Jenis Pelanggaran", fields: [{ id: "nama", label: "Nama Pelanggaran" }] },
   { key: "wali", label: "Wali Santri", fields: [{ id: "nama_wali", label: "Nama Wali" }, { id: "hubungan", label: "Hubungan" }, { id: "kontak", label: "No. WhatsApp" }] }
 ];
 
@@ -806,7 +825,7 @@ Router.add("master", async (root, params) => {
       listEl.innerHTML = `
         ${isAdmin ? `<div class="card"><h3>Tambah ${tab.label}</h3>
           <form id="form-master">
-            ${tab.fields.map(f => `<div class="field"><label>${f.label}</label><input type="text" id="fm-${f.id}" required></div>`).join("")}
+            ${tab.fields.map(f => `<div class="field"><label>${f.label}</label>${f.options ? `<select id="fm-${f.id}" required>${f.options.map(o => `<option>${o}</option>`).join("")}</select>` : `<input type="text" id="fm-${f.id}" required>`}</div>`).join("")}
             <button class="btn btn-primary btn-block" type="submit">Tambah</button>
           </form>
         </div>` : ""}
@@ -895,7 +914,7 @@ Router.add("prestasi", async (root) => {
               <div class="field"><label>Nama Prestasi</label><input type="text" id="pr-nama" required></div>
               <div class="grid-2">
                 <div class="field"><label>Tingkat</label><input type="text" id="pr-tingkat" placeholder="Kabupaten / Provinsi / Nasional" required></div>
-                <div class="field"><label>Tanggal</label><input type="date" id="pr-tanggal" value="${new Date().toISOString().slice(0, 10)}"></div>
+                <div class="field"><label>Tanggal</label><input type="date" id="pr-tanggal" value="${tglHariIni()}"></div>
               </div>
               <div class="field"><label>Keterangan</label><textarea id="pr-ket" rows="2"></textarea></div>
               <div class="field"><label>Bukti / Sertifikat (opsional)</label><input type="file" id="pr-file" accept="image/*,application/pdf"></div>
@@ -958,7 +977,7 @@ Router.add("laporan", async (root, params) => {
         </div>
         <div class="grid-2">
           <div class="field"><label>Dari Tanggal</label><input type="date" id="lp-dari"></div>
-          <div class="field"><label>Sampai Tanggal</label><input type="date" id="lp-sampai" value="${new Date().toISOString().slice(0, 10)}"></div>
+          <div class="field"><label>Sampai Tanggal</label><input type="date" id="lp-sampai" value="${tglHariIni()}"></div>
         </div>
         <div class="flex gap-1">
           <button class="btn btn-primary btn-block" id="btn-lp-hafalan">Cetak Capaian Hafalan</button>
@@ -1049,6 +1068,7 @@ Router.add("akun", async (root, params) => {
       const v = (f, d) => existing ? (existing[f] || d || "") : (d || "");
 
       main.innerHTML = `
+        <div id="wali-massal"></div>
         <div class="card">
           <h3>${existing ? "Edit Akun: " + existing.nama : "Buat Akun Baru"}</h3>
           <form id="form-akun">
@@ -1144,6 +1164,13 @@ Router.add("akun", async (root, params) => {
       }
       peranSelect.addEventListener("change", toggleRefFields);
       toggleRefFields();
+      pasangWaliMassal(document.getElementById("wali-massal"));
+      // Wali santri login memakai NIS: isi username otomatis dari santri yang dipilih (masih bisa diubah).
+      document.getElementById("ak-santri-anak").addEventListener("change", (ev) => {
+        const s = daftarSantri.find(x => x.id === ev.target.value);
+        const u = document.getElementById("ak-username");
+        if (s && peranSelect.value === "wali_santri" && (!existing || !u.value)) u.value = String(s.nis).trim();
+      });
 
       document.getElementById("ak-foto").addEventListener("change", async (e) => {
         const f = e.target.files[0];
@@ -1336,8 +1363,20 @@ Router.add("anaksaya", async (root) => {
           data.riwayat_prestasi.map(p => `<div class="text-sm mb-1"><b>${p.nama_prestasi}</b> &mdash; ${p.tingkat} (${p.tanggal})</div>`).join("")}
       </div>
 
+      <div class="card">
+        <h3>Catatan Pelanggaran</h3>
+        ${(data.riwayat_pelanggaran || []).length === 0 ? `<div class="empty-state">Tidak ada catatan pelanggaran.</div>` :
+          data.riwayat_pelanggaran.slice().reverse().slice(0, 5).map(p => `<div class="text-sm mb-1"><b>${esc(p.jenis_pelanggaran)}</b> (${fmtTanggal(p.tanggal)}) &mdash; ${esc(p.penanganan)} <span class="text-muted">oleh ${esc(p.penangan)}</span></div>`).join("")}
+      </div>
+
+      <div id="info-wrap"></div>
       <div id="pesan-wrap"></div>
     `;
+    const kartuNotif = document.createElement("div");
+    kartuNotif.id = "notif-kartu";
+    main.querySelector(".card").insertAdjacentElement("afterend", kartuNotif); // tepat di bawah kartu profil anak
+    renderKartuNotif(kartuNotif);
+    renderInfoBeranda(document.getElementById("info-wrap")).catch(() => {});
     await pasangPesanWidget(document.getElementById("pesan-wrap"), s.id);
   } catch (err) {
     tampilkanGalat(main, err);
@@ -1347,7 +1386,7 @@ Router.add("anaksaya", async (root) => {
 // ======================= REKAP BULANAN (dipakai di Presensi & Hafalan) =======================
 
 function bulanIniStr() {
-  return new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+  return tglHariIni().slice(0, 7); // 'YYYY-MM' (zona waktu perangkat)
 }
 
 function namaBulanIndo(bulanStr) {
@@ -1618,7 +1657,7 @@ Router.add("jurnal", async (root) => {
         <h3>Isi Jurnal Mengajar</h3>
         <form id="form-jurnal">
           <div class="grid-2">
-            <div class="field"><label>Tanggal</label><input type="date" id="jr-tanggal" value="${new Date().toISOString().slice(0, 10)}" required></div>
+            <div class="field"><label>Tanggal</label><input type="date" id="jr-tanggal" value="${tglHariIni()}" required></div>
             <div class="field"><label>${refLabel}</label>
               <select id="jr-ref" required>${refList.length === 0 ? `<option value="">(belum ditugaskan)</option>` : refList.map(k => `<option value="${k.id}">${esc(k[refField])}</option>`).join("")}</select>
             </div>
@@ -1767,6 +1806,7 @@ Router.add("jam", async (root, params) => {
     const v = (f, d) => edit ? (edit[f] || d || "") : (d || "");
 
     main.innerHTML = `
+      <div id="peng-akademik"></div>
       <div class="card">
         <h3>Jadwal Jam Pelajaran</h3>
         <div class="text-muted text-sm mb-1">Urutan jam mengajar, istirahat, dan pulang. Jam ini muncul sebagai pilihan "Jam ke-" saat guru mengisi jurnal.</div>
@@ -1809,6 +1849,7 @@ Router.add("jam", async (root, params) => {
       </div>` : ""}
     `;
 
+    renderPengaturanAkademik(document.getElementById("peng-akademik"));
     if (isAdmin) {
       document.getElementById("form-jam").addEventListener("submit", async (e) => {
         e.preventDefault();

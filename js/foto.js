@@ -4,7 +4,7 @@
 
 // Kompres foto jadi persegi kecil (default 160px, JPEG). Turunkan kualitas bertahap
 // sampai ukurannya cukup kecil untuk disimpan di satu sel Google Sheets.
-function kompresFoto(file, sisiMaks = 160, kualitasAwal = 0.75, batasKarakter = 38000) {
+function kompresFoto(file, sisiMaks = 160, kualitasAwal = 0.75, batasKarakter = 38000, persegi = true) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Gagal membaca file foto."));
@@ -12,6 +12,18 @@ function kompresFoto(file, sisiMaks = 160, kualitasAwal = 0.75, batasKarakter = 
       const img = new Image();
       img.onerror = () => reject(new Error("File bukan gambar yang valid."));
       img.onload = () => {
+        if (!persegi) { // gambar poster: pertahankan proporsi, hanya diperkecil
+          const skala = Math.min(1, sisiMaks / Math.max(img.width, img.height));
+          const cv = document.createElement("canvas");
+          cv.width = Math.round(img.width * skala); cv.height = Math.round(img.height * skala);
+          const cx = cv.getContext("2d");
+          cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+          cx.drawImage(img, 0, 0, cv.width, cv.height);
+          let q2 = kualitasAwal, o2 = cv.toDataURL("image/jpeg", q2);
+          while (o2.length > batasKarakter && q2 > 0.3) { q2 -= 0.1; o2 = cv.toDataURL("image/jpeg", q2); }
+          if (o2.length > batasKarakter) return reject(new Error("Gambar terlalu kompleks untuk dikompres. Coba gambar lain."));
+          return resolve(o2);
+        }
         const sisi = Math.min(img.width, img.height);
         const sx = (img.width - sisi) / 2;
         // Foto potret: potong sedikit lebih ke atas supaya wajah tidak terpotong.

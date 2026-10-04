@@ -239,3 +239,53 @@ table.matrix .sel-hari { display: inline-block; min-width: 16px; padding: 1px 3p
 }
 .menu-tile .menu-ico { font-size: 28px; }
 .menu-tile:active { background: var(--emerald-surface); }
+
+/* ===== Login dengan info publik ===== */
+.login-page { min-height: 100vh; background: var(--emerald-deep); padding: 20px 14px 40px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.login-page .login-card { margin: 0; }
+.login-info { width: 100%; max-width: 900px; display: grid; gap: 14px; }
+@media (min-width: 900px) {
+  .login-page { flex-direction: row; align-items: flex-start; justify-content: center; padding-top: 40px; }
+  .login-page .login-card { position: sticky; top: 24px; flex-shrink: 0; }
+  .login-info { flex: 1; max-width: 640px; }
+}
+.login-info .card { margin: 0; }
+.login-info h3 { display: flex; align-items: center; gap: 6px; }
+
+/* ===== Pengumuman (kartu interaktif) ===== */
+.pgm { border: 1px solid var(--border-subtle); border-radius: var(--radius); margin-bottom: 8px; background: #fff; overflow: hidden; }
+.pgm-head { padding: 10px 12px; cursor: pointer; }
+.pgm-head:active { background: var(--emerald-surface); }
+.pgm-judul { font-weight: 700; margin: 4px 0 2px; font-size: 14px; }
+.pgm-ringkas { font-size: 12px; color: var(--text-muted); }
+.pgm-detail { padding: 0 12px 12px; font-size: 13px; line-height: 1.55; }
+.pgm-img { width: 100%; max-height: 360px; object-fit: contain; border-radius: var(--radius); margin: 4px 0 8px; background: #F8FAFC; }
+.pgm.open { border-color: var(--emerald); box-shadow: 0 0 0 1px var(--emerald); }
+
+/* ===== Kalender ===== */
+.kal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.kal-nav b { font-size: 15px; color: var(--emerald-deep); }
+.kal-nav button { background: var(--emerald-surface); border: 1px solid #A7F3D0; color: var(--emerald-deep); width: 34px; height: 34px; border-radius: 50%; font-size: 16px; }
+.kal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.kal-nama { text-align: center; font-size: 10px; font-weight: 700; color: var(--text-muted); padding: 2px 0; }
+.kal-nama.jumat { color: var(--gold); }
+.kal-hari { min-height: 44px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 3px; background: #fff; cursor: pointer; display: flex; flex-direction: column; align-items: center; font-size: 12px; }
+.kal-hari.kosong { border: none; background: transparent; cursor: default; }
+.kal-hari.hari-ini { border-color: var(--emerald); background: var(--emerald-surface); font-weight: 700; }
+.kal-hari.dipilih { box-shadow: 0 0 0 2px var(--azure); }
+.kal-titik { display: flex; gap: 2px; margin-top: 3px; flex-wrap: wrap; justify-content: center; }
+.kal-titik i { width: 6px; height: 6px; border-radius: 50%; display: block; }
+.kal-agenda { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+.kal-agenda .bar { width: 4px; border-radius: 4px; flex-shrink: 0; }
+.kal-legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--text-muted); margin: 8px 0; }
+.kal-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; }
+
+/* ===== Notifikasi wali ===== */
+.notif-badge { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 9999px; background: #EF4444; color: #fff; font-size: 10px; font-weight: 700; align-items: center; justify-content: center; }
+#toast-wrap { position: fixed; top: 12px; right: 12px; left: 12px; z-index: 100; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.toast { pointer-events: auto; max-width: 360px; width: 100%; background: #fff; border-left: 4px solid var(--emerald); border-radius: 10px; padding: 10px 12px; box-shadow: 0 10px 15px -3px rgba(15,23,42,0.18); font-size: 13px; cursor: pointer; animation: toast-masuk .25s ease-out; }
+@keyframes toast-masuk { from { transform: translateY(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
+.notif-item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+.notif-item.baru { background: var(--emerald-surface); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+
+.flex .btn-sm { flex-shrink: 0; white-space: nowrap; }

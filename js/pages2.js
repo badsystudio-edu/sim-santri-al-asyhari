@@ -278,7 +278,6 @@ Router.add("pengumuman", async (root) => {
 
 async function renderInfoBeranda(container) {
   const d = await Api.call("info.beranda", {});
-  const ja = d.jumat_amal || {};
   container.innerHTML = `
     <div class="card">
       <div class="flex-between"><h3 style="margin:0;">📢 Pengumuman</h3><a href="#/pengumuman" class="text-sm" style="color:var(--azure);">Lihat semua</a></div>
@@ -290,14 +289,6 @@ async function renderInfoBeranda(container) {
         <div class="kal-agenda"><div class="bar" style="background:${warnaKategori(a.kategori)}"></div><div><b>${esc(a.judul)}</b>
         <div class="text-muted text-sm">${fmtTanggal(a.tanggal_mulai)}${a.tanggal_selesai !== a.tanggal_mulai ? " – " + fmtTanggal(a.tanggal_selesai) : ""} · ${esc(a.kategori)}</div></div></div>`).join("")}</div>
     </div>
-    <div class="card">
-      <h3>🤲 Jumat Amal</h3>
-      ${ja.terakhir ? `
-        <div class="text-muted text-sm">Pekan terakhir (${fmtTanggal(ja.terakhir.tanggal)})</div>
-        <div style="font-size:24px;font-weight:700;color:var(--emerald-deep);">${rupiah(ja.terakhir.total)}</div>
-        <div class="text-sm">${ja.terakhir.jumlah_peserta ? ja.terakhir.jumlah_peserta + " santri berpartisipasi. " : ""}${esc(ja.terakhir.keterangan || "")}</div>
-        <div class="text-muted text-sm mt-1">Total bulan ini: <b>${rupiah(ja.total_bulan_ini)}</b> (${ja.jumlah_pekan} pekan)</div>`
-        : `<div class="empty-state">Belum ada laporan Jumat Amal.</div>`}
     </div>`;
   pasangInteraksiPengumuman(container);
 }
@@ -368,6 +359,24 @@ Router.add("notifikasi", async (root) => {
   } catch (err) { tampilkanGalat(main, err); }
 });
 
+// ======================= LAPORAN JUMAT AMAL PUBLIK (transparansi, tampil di halaman login) =======================
+
+function kartuJumatAmalPublik(ja) {
+  if (!ja) return "";
+  const baris = ja.terbaru || [];
+  return `
+    <div class="card">
+      <h3>🤲 Laporan Jumat Amal</h3>
+      <div class="text-muted text-sm">Dilaporkan setiap pekan untuk transparansi.</div>
+      <div class="stat-card mt-1 mb-1"><div class="num">${rupiah(ja.total_bulan_ini)}</div><div class="label">Terkumpul bulan ${namaBulanIndo(ja.bulan)} (${ja.jumlah_pekan} pekan)</div></div>
+      ${baris.length === 0 ? `<div class="empty-state">Belum ada laporan Jumat Amal.</div>` : `
+      <div class="table-wrap"><table class="data-table">
+        <tr><th>Tanggal</th><th>Terkumpul</th><th>Peserta</th><th>Penyaluran</th></tr>
+        ${baris.map(a => `<tr><td style="white-space:nowrap;">${fmtTanggal(a.tanggal)}</td><td><b>${rupiah(a.total)}</b></td><td>${a.jumlah_peserta || "-"}</td><td style="min-width:140px;">${esc(a.keterangan) || "-"}</td></tr>`).join("")}
+      </table></div>`}
+    </div>`;
+}
+
 // ======================= HALAMAN LOGIN (dengan informasi publik interaktif) =======================
 
 Router.add("login", async (root) => {
@@ -420,6 +429,7 @@ Router.add("login", async (root) => {
     if (!info) return;
     info.innerHTML = `
       <div class="card"><h3>📢 Pengumuman &amp; Kegiatan</h3>${renderPengumumanList(d.pengumuman)}</div>
+      ${kartuJumatAmalPublik(d.jumat_amal)}
       <div id="login-kalender"></div>`;
     pasangInteraksiPengumuman(info);
     await renderKalender(document.getElementById("login-kalender"), { admin: false });
@@ -810,7 +820,8 @@ Router.add("jumatamal", async (root) => {
             <div class="field"><label>Jumlah Terkumpul (Rp)</label><input type="number" id="am-total" min="0" inputmode="numeric" value="${v("total")}" required></div>
           </div>
           <div class="field"><label>Jumlah Santri Berpartisipasi (opsional)</label><input type="number" id="am-peserta" min="0" value="${v("jumlah_peserta")}"></div>
-          <div class="field"><label>Keterangan / Penyaluran</label><textarea id="am-ket" rows="2" placeholder="mis. disalurkan untuk santri yatim, renovasi mushola">${v("keterangan")}</textarea></div>
+          <div class="field"><label>Keterangan / Penyaluran</label><textarea id="am-ket" rows="2" placeholder="mis. disalurkan untuk santunan yatim, renovasi mushola">${v("keterangan")}</textarea>
+            <div class="text-sm mt-1" style="color:#B45309;">Laporan ini <b>tampil di halaman login (bisa dilihat siapa saja)</b>. Jangan menulis nama atau identitas penerima.</div></div>
           <button class="btn btn-primary btn-block" type="submit">${e ? "Simpan Perubahan" : "Simpan Laporan"}</button>
           ${e ? `<button type="button" class="btn btn-secondary btn-block mt-1" id="am-batal">Batal Edit</button>` : ""}
           <div id="am-pesan" class="mt-1"></div>
@@ -856,7 +867,7 @@ Router.add("jumatamal", async (root) => {
   }
 
   main.innerHTML = `<div id="form-wrap"></div>
-    <div class="card"><h3>Rekap Jumat Amal</h3><div class="field"><label>Bulan</label><input type="month" id="am-bulan" value="${bulanIniStr()}"></div><div id="am-list"></div></div>`;
+    <div class="card"><h3>Rekap Jumat Amal <span class="chip chip-hadir">Tampil publik di halaman login</span></h3><div class="field"><label>Bulan</label><input type="month" id="am-bulan" value="${bulanIniStr()}"></div><div id="am-list"></div></div>`;
   pasangForm();
   el("am-bulan").addEventListener("change", muat);
   await muat();

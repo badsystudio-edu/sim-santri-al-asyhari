@@ -57,7 +57,7 @@ function Shell(activeKey, innerHtml) {
             <div style="font-size:10px;color:var(--text-muted);">Al Asyhari</div>
           </div>
         </div>
-        ${navList.map(n => `<a href="#/${n.key}" class="${n.key === activeKey ? "active" : ""}">${n.icon} ${n.label}</a>`).join("")}
+        ${navList.map(n => `<a href="#/${n.key}" class="${n.key === activeKey ? "active" : ""}"><span class="nav-ico">${n.icon}</span><span class="nav-label">${n.label}</span></a>`).join("")}
         <div style="margin-top:auto;padding:12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border-subtle);">
           <div class="flex gap-1" style="align-items:center;margin-bottom:6px;">
             ${avatarKecil(profil, 28)}
@@ -114,6 +114,7 @@ function chipTipe(tipe) {
 async function logoutSekarang() {
   try { await Api.call("logout", {}); } catch (e) { /* abaikan */ }
   Auth.clear();
+  resetPopupAgenda();
   NotifState.berhenti();
   RefCache.invalidateAll();
   FotoStore.hapusSemua();
@@ -282,6 +283,7 @@ Router.add("presensi", async (root) => {
             <datalist id="p-mapel-list">${mapelSaya.map(m => `<option value="${esc(m)}"></option>`).join("")}</datalist>
           </div>
         </div>
+        <div id="p-libur"></div>
         <button class="btn btn-primary btn-block" id="btn-muat-presensi">Muat Daftar Santri</button>
       </div>
       <div id="presensi-list"></div>
@@ -308,12 +310,24 @@ Router.add("presensi", async (root) => {
 
     document.getElementById("btn-muat-presensi").addEventListener("click", () => muatDaftarPresensi());
 
+    // Hari Minggu / hari libur: guru tidak dapat menyimpan presensi (admin tetap boleh).
+    let liburAktif = false;
+    async function periksaLibur() {
+      const info = await cekLiburTanggal(document.getElementById("p-tanggal").value);
+      liburAktif = info.diblokir && !info.admin_dikecualikan;
+      document.getElementById("p-libur").innerHTML = pesanLiburHtml(info);
+      document.getElementById("btn-muat-presensi").disabled = liburAktif;
+    }
+    document.getElementById("p-tanggal").addEventListener("change", periksaLibur);
+    periksaLibur();
+
     async function muatDaftarPresensi() {
       const jenis = document.getElementById("p-jenis").value;
       const refId = document.getElementById("p-ref").value;
       const tanggal = document.getElementById("p-tanggal").value;
       if (!refId) return;
       const listEl = document.getElementById("presensi-list");
+      if (liburAktif) { listEl.innerHTML = ""; return; }
       listEl.innerHTML = `<div class="loading">Memuat daftar santri...</div>`;
       try {
         const data = await Api.call("presensi.get", { jenis, ref_id: refId, tanggal });
@@ -340,6 +354,7 @@ Router.add("presensi", async (root) => {
               </div>
             `).join("")}
             <button class="btn btn-primary btn-block mt-2" id="btn-simpan-presensi">Simpan Presensi</button>
+            ${profil.peran === "admin" && data.sudah_disimpan ? `<button class="btn btn-danger btn-block mt-1" id="btn-hapus-presensi">Hapus Presensi Tanggal Ini</button><div class="text-muted text-sm mt-1">Admin dapat mengoreksi status lalu menyimpan ulang, atau menghapus seluruh presensi tanggal ini bila salah input.</div>` : ""}
           </div>
         `;
 
@@ -370,6 +385,19 @@ Router.add("presensi", async (root) => {
             btn.disabled = false; btn.textContent = "Simpan Presensi";
           }
         });
+
+        const btnHapus = document.getElementById("btn-hapus-presensi");
+        if (btnHapus) {
+          btnHapus.addEventListener("click", async () => {
+            if (!confirm("Hapus SELURUH presensi untuk kelas/kelompok dan tanggal ini? Tindakan ini tidak bisa dibatalkan.")) return;
+            btnHapus.disabled = true;
+            try {
+              await Api.call("presensi.hapus", { jenis, ref_id: refId, tanggal });
+              RefCache.invalidate("dashboard");
+              await muatDaftarPresensi();
+            } catch (err) { alert(err.message); btnHapus.disabled = false; }
+          });
+        }
       } catch (err) {
         tampilkanGalat(listEl, err);
       }
@@ -1623,172 +1651,6 @@ Router.add("menu", async (root) => {
     `<a class="menu-tile" href="#/${n.key}"><div class="menu-ico">${n.icon}</div>${n.label}</a>`).join("")}</div>`);
 });
 
-// ======================= JURNAL MENGAJAR =======================
-
-function labelJamSlot(s) {
-  return s.mulai ? `${s.label} (${s.mulai}${s.selesai ? "–" + s.selesai : ""})` : s.label;
-}
-
-Router.add("jurnal", async (root) => {
-  root.innerHTML = Shell("jurnal", `<div class="loading">Memuat...</div>`);
-  const main = document.querySelector("main.content");
-  const profil = Auth.getProfil();
-  const penginput = profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq";
-  const pemantau = !penginput; // admin & pimpinan: melihat semua jurnal
-
-  try {
-    const [jamRes, kelasRes, kelompokRes] = await Promise.all([Ref.jam(), Ref.kelas(), Ref.kelompok()]);
-    const slotJam = (jamRes.items || []).filter(s => s.jenis === "jam");
-
-    let refList = [], refLabel = "", refField = "";
-    if (profil.peran === "guru_mapel") {
-      const d = (profil.kelas_diampu || "").split(",");
-      refList = (kelasRes.items || []).filter(k => d.indexOf(k.id) !== -1);
-      refLabel = "Kelas"; refField = "nama_kelas";
-    } else if (profil.peran === "pengajar_tpq") {
-      const d = (profil.kelompok_diampu || "").split(",");
-      refList = (kelompokRes.items || []).filter(k => d.indexOf(k.id) !== -1);
-      refLabel = "Kelompok PTQ"; refField = "nama_kelompok";
-    }
-    const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
-
-    const formHtml = !penginput ? "" : `
-      <div class="card">
-        <h3>Isi Jurnal Mengajar</h3>
-        <form id="form-jurnal">
-          <div class="grid-2">
-            <div class="field"><label>Tanggal</label><input type="date" id="jr-tanggal" value="${tglHariIni()}" required></div>
-            <div class="field"><label>${refLabel}</label>
-              <select id="jr-ref" required>${refList.length === 0 ? `<option value="">(belum ditugaskan)</option>` : refList.map(k => `<option value="${k.id}">${esc(k[refField])}</option>`).join("")}</select>
-            </div>
-          </div>
-          <div class="grid-2">
-            <div class="field"><label>Jam ke-</label>
-              ${slotJam.length === 0
-                ? `<input type="text" id="jr-jam" placeholder="mis. Jam ke-1" required>`
-                : `<select id="jr-jam" required>${slotJam.map(s => `<option value="${esc(s.label)}">${esc(labelJamSlot(s))}</option>`).join("")}</select>`}
-            </div>
-            <div class="field"><label>Mata Pelajaran</label>
-              ${mapelSaya.length > 0
-                ? `<select id="jr-mapel" required>${mapelSaya.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("")}</select>`
-                : `<input type="text" id="jr-mapel" placeholder="mis. Tahfidz" required>`}
-            </div>
-          </div>
-          <div class="field"><label>Materi yang Diajarkan</label><textarea id="jr-materi" rows="3" required placeholder="Tuliskan materi/pokok bahasan hari ini"></textarea></div>
-          <div class="field"><label>Catatan (opsional)</label><input type="text" id="jr-catatan" placeholder="mis. tugas, kendala, santri yang perlu perhatian"></div>
-          <button class="btn btn-primary btn-block" type="submit">Simpan Jurnal</button>
-          <div id="jr-pesan" class="mt-1"></div>
-        </form>
-      </div>`;
-
-    main.innerHTML = `
-      ${formHtml}
-      <div class="card">
-        <h3>${pemantau ? "Pantauan Jurnal Guru" : "Jurnal Saya"}</h3>
-        <div class="grid-2">
-          <div class="field"><label>Bulan</label><input type="month" id="jr-bulan" value="${bulanIniStr()}"></div>
-          ${pemantau ? `<div class="field"><label>Guru</label><select id="jr-guru"><option value="">Semua guru</option></select></div>` : ""}
-        </div>
-        <div id="jr-ringkasan"></div>
-        <div id="jr-list"><div class="loading">Memuat jurnal...</div></div>
-      </div>`;
-
-    let semuaItems = [];
-
-    function gambarList() {
-      const listEl = document.getElementById("jr-list");
-      const guruTerpilih = pemantau ? document.getElementById("jr-guru").value : "";
-      const items = guruTerpilih ? semuaItems.filter(j => String(j.id_guru) === guruTerpilih) : semuaItems;
-
-      if (pemantau) {
-        const per = {};
-        semuaItems.forEach(j => {
-          const k = per[j.id_guru] || (per[j.id_guru] = { nama: j.nama_guru, jumlah: 0, hari: {} });
-          k.jumlah++; k.hari[j.tanggal] = true;
-        });
-        const baris = Object.keys(per).map(id => per[id]).sort((a, b) => b.jumlah - a.jumlah);
-        document.getElementById("jr-ringkasan").innerHTML = baris.length === 0 ? "" : `
-          <div class="text-muted text-sm mb-1">Ringkasan bulan ini: jumlah jurnal yang sudah diisi tiap guru.</div>
-          <div class="table-wrap mb-1"><table class="data-table">
-            <tr><th>Guru</th><th>Jumlah Jurnal</th><th>Hari Mengisi</th></tr>
-            ${baris.map(b => `<tr><td>${esc(b.nama)}</td><td>${b.jumlah}</td><td>${Object.keys(b.hari).length}</td></tr>`).join("")}
-          </table></div>`;
-      }
-
-      if (items.length === 0) { listEl.innerHTML = `<div class="empty-state">Belum ada jurnal pada bulan ini.</div>`; return; }
-      listEl.innerHTML = `<div class="table-wrap"><table class="data-table">
-        <tr><th>Tanggal</th><th>Jam</th><th>${pemantau ? "Guru" : "Kelas/Kelompok"}</th>${pemantau ? "<th>Kelas/Kelompok</th>" : ""}<th>Mapel</th><th>Materi</th><th>Catatan</th>${penginput || Auth.boleh("admin") ? "<th></th>" : ""}</tr>
-        ${items.map(j => `<tr>
-          <td style="white-space:nowrap;">${esc(j.tanggal)}</td>
-          <td style="white-space:nowrap;">${esc(j.jam_ke)}</td>
-          <td>${esc(pemantau ? j.nama_guru : j.nama_ref)}</td>
-          ${pemantau ? `<td>${esc(j.nama_ref)}</td>` : ""}
-          <td>${esc(j.mapel)}</td>
-          <td style="min-width:180px;">${esc(j.materi)}</td>
-          <td>${esc(j.catatan) || "-"}</td>
-          ${penginput || Auth.boleh("admin") ? `<td><button class="btn btn-danger btn-sm" onclick="hapusJurnal('${esc(j.id)}')">Hapus</button></td>` : ""}
-        </tr>`).join("")}
-      </table></div>`;
-    }
-
-    async function muatJurnal() {
-      const listEl = document.getElementById("jr-list");
-      listEl.innerHTML = `<div class="loading">Memuat jurnal...</div>`;
-      try {
-        const data = await Api.call("jurnal.list", { bulan: document.getElementById("jr-bulan").value });
-        semuaItems = data.items || [];
-        if (pemantau) {
-          const sel = document.getElementById("jr-guru");
-          const dipilih = sel.value;
-          const guru = {};
-          semuaItems.forEach(j => { guru[j.id_guru] = j.nama_guru; });
-          sel.innerHTML = `<option value="">Semua guru</option>` + Object.keys(guru).map(id => `<option value="${esc(id)}" ${id === dipilih ? "selected" : ""}>${esc(guru[id])}</option>`).join("");
-        }
-        gambarList();
-      } catch (err) { tampilkanGalat(listEl, err); }
-    }
-    window.__muatJurnal = muatJurnal;
-
-    document.getElementById("jr-bulan").addEventListener("change", muatJurnal);
-    if (pemantau) document.getElementById("jr-guru").addEventListener("change", gambarList);
-
-    if (penginput) {
-      document.getElementById("form-jurnal").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const btn = e.target.querySelector("button[type=submit]");
-        const pesanEl = document.getElementById("jr-pesan");
-        btn.disabled = true; btn.textContent = "Menyimpan...";
-        pesanEl.innerHTML = "";
-        try {
-          await Api.call("jurnal.save", { data: {
-            tanggal: document.getElementById("jr-tanggal").value,
-            id_ref: document.getElementById("jr-ref").value,
-            jam_ke: document.getElementById("jr-jam").value,
-            mapel: document.getElementById("jr-mapel").value,
-            materi: document.getElementById("jr-materi").value,
-            catatan: document.getElementById("jr-catatan").value
-          } });
-          document.getElementById("jr-materi").value = "";
-          document.getElementById("jr-catatan").value = "";
-          pesanEl.innerHTML = `<div class="alert alert-success">Jurnal tersimpan.</div>`;
-          muatJurnal();
-        } catch (err) {
-          pesanEl.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
-        } finally {
-          btn.disabled = false; btn.textContent = "Simpan Jurnal";
-        }
-      });
-    }
-
-    await muatJurnal();
-  } catch (err) { tampilkanGalat(main, err); }
-});
-
-window.hapusJurnal = async function (id) {
-  if (!confirm("Hapus jurnal ini?")) return;
-  try { await Api.call("jurnal.hapus", { id }); window.__muatJurnal(); } catch (err) { alert(err.message); }
-};
-
 // ======================= PENGATURAN JAM PELAJARAN =======================
 
 const JENIS_JAM_LABEL = { jam: "Jam Pelajaran", istirahat: "Istirahat", pulang: "Pulang" };
@@ -1807,6 +1669,7 @@ Router.add("jam", async (root, params) => {
 
     main.innerHTML = `
       <div id="peng-akademik"></div>
+      <div id="peng-kop"></div>
       <div class="card">
         <h3>Jadwal Jam Pelajaran</h3>
         <div class="text-muted text-sm mb-1">Urutan jam mengajar, istirahat, dan pulang. Jam ini muncul sebagai pilihan "Jam ke-" saat guru mengisi jurnal.</div>
@@ -1850,6 +1713,7 @@ Router.add("jam", async (root, params) => {
     `;
 
     renderPengaturanAkademik(document.getElementById("peng-akademik"));
+    renderKopRaport(document.getElementById("peng-kop"));
     if (isAdmin) {
       document.getElementById("form-jam").addEventListener("submit", async (e) => {
         e.preventDefault();

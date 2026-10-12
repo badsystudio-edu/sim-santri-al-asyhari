@@ -102,7 +102,7 @@ async function renderKalender(container, opsi) {
         <div class="kal-agenda">
           <div class="bar" style="background:${warnaKategori(a.kategori)}"></div>
           <div style="flex:1;">
-            <b>${esc(a.judul)}</b> <span class="chip chip-nonaktif">${esc(a.kategori)}</span>
+            <b>${esc(a.judul)}</b> <span class="chip chip-nonaktif">${esc(a.kategori)}</span>${opsi.admin && a.kategori === "Libur" ? (a.blokir === "tidak" ? ` <span class="chip chip-hadir">Input guru boleh</span>` : ` <span class="chip chip-alpa">🔒 Input guru dikunci</span>`) : ""}
             <div class="text-muted text-sm">${fmtTanggal(a.tanggal_mulai)}${a.tanggal_selesai !== a.tanggal_mulai ? " – " + fmtTanggal(a.tanggal_selesai) : ""}</div>
             ${a.keterangan ? `<div class="text-sm">${esc(a.keterangan)}</div>` : ""}
             ${opsi.admin ? `<div class="mt-1"><button class="btn btn-secondary btn-sm" data-edit="${esc(a.id)}">Edit</button> <button class="btn btn-danger btn-sm" data-hapus="${esc(a.id)}">Hapus</button></div>` : ""}
@@ -129,6 +129,8 @@ async function renderKalender(container, opsi) {
             <div class="field"><label>Tanggal Mulai</label><input type="date" id="ag-mulai" value="${v("tanggal_mulai") || st.hari || ""}" required></div>
           </div>
           <div class="field"><label>Tanggal Selesai (kosongkan jika 1 hari)</label><input type="date" id="ag-selesai" value="${e && e.tanggal_selesai !== e.tanggal_mulai ? v("tanggal_selesai") : ""}"></div>
+          <div class="field" id="ag-blokir-wrap"><label style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="ag-blokir" ${!e || e.blokir !== "tidak" ? "checked" : ""}> Kunci input guru (presensi &amp; jurnal) pada tanggal libur ini</label>
+            <div class="text-muted text-sm mt-1">Hanya berlaku untuk kategori Libur. Hilangkan centang bila guru tetap boleh input pada hari tersebut.</div></div>
           <div class="field"><label>Keterangan (opsional)</label><textarea id="ag-ket" rows="2">${v("keterangan")}</textarea></div>
           <button class="btn btn-primary btn-block" type="submit">${e ? "Simpan Perubahan" : "Tambah Agenda"}</button>
           ${e ? `<button type="button" class="btn btn-secondary btn-block mt-1" id="ag-batal">Batal Edit</button>` : ""}
@@ -137,6 +139,9 @@ async function renderKalender(container, opsi) {
       </div>`;
     const batal = document.getElementById("ag-batal");
     if (batal) batal.addEventListener("click", () => { st.edit = null; gambarFormAdmin(); });
+    const aturBlokir = () => { document.getElementById("ag-blokir-wrap").style.display = document.getElementById("ag-kategori").value === "Libur" ? "block" : "none"; };
+    document.getElementById("ag-kategori").addEventListener("change", aturBlokir);
+    aturBlokir();
     document.getElementById("form-agenda").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const btn = ev.target.querySelector("button[type=submit]");
@@ -145,7 +150,8 @@ async function renderKalender(container, opsi) {
         await Api.call("agenda.save", { data: {
           id: e ? e.id : undefined, judul: document.getElementById("ag-judul").value,
           kategori: document.getElementById("ag-kategori").value, tanggal_mulai: document.getElementById("ag-mulai").value,
-          tanggal_selesai: document.getElementById("ag-selesai").value, keterangan: document.getElementById("ag-ket").value
+          tanggal_selesai: document.getElementById("ag-selesai").value, keterangan: document.getElementById("ag-ket").value,
+          blokir: document.getElementById("ag-blokir").checked ? "ya" : "tidak"
         } });
         st.edit = null;
         gambarFormAdmin();
@@ -278,6 +284,7 @@ Router.add("pengumuman", async (root) => {
 
 async function renderInfoBeranda(container) {
   const d = await Api.call("info.beranda", {});
+  tampilPopupAgenda(d.agenda, "beranda");
   container.innerHTML = `
     <div class="card">
       <div class="flex-between"><h3 style="margin:0;">📢 Pengumuman</h3><a href="#/pengumuman" class="text-sm" style="color:var(--azure);">Lihat semua</a></div>
@@ -414,6 +421,7 @@ Router.add("login", async (root) => {
         password: document.getElementById("login-password").value
       });
       Auth.setSesi(data.token, data.profil);
+      resetPopupAgenda(); // tampilkan popup agenda lagi di Beranda akun ini
       if (data.profil.peran === "wali_santri") NotifState.mulai(); else prefetchSemua();
       Router.go(Router.berandaUntukPeran());
     } catch (err) {
@@ -427,6 +435,7 @@ Router.add("login", async (root) => {
     const d = await Api.call("publik.info", {});
     const info = document.getElementById("login-info");
     if (!info) return;
+    tampilPopupAgenda(d.agenda, "login");
     info.innerHTML = `
       <div class="card"><h3>📢 Pengumuman &amp; Kegiatan</h3>${renderPengumumanList(d.pengumuman)}</div>
       ${kartuJumatAmalPublik(d.jumat_amal)}
@@ -471,6 +480,9 @@ async function renderPengaturanAkademik(container) {
             <div class="field"><label>Bobot PTS %</label><input type="number" id="pa-p" min="0" max="100" value="${p.bobot_pts}" ${isAdmin ? "" : "disabled"}></div>
             <div class="field"><label>Bobot PAS %</label><input type="number" id="pa-a" min="0" max="100" value="${p.bobot_pas}" ${isAdmin ? "" : "disabled"}></div>
           </div>
+          <div class="field"><label>Kunci input guru pada hari Minggu &amp; hari libur</label>
+            <select id="pa-blokir" ${isAdmin ? "" : "disabled"}><option value="ya" ${p.blokir_hari_libur !== "tidak" ? "selected" : ""}>Aktif</option><option value="tidak" ${p.blokir_hari_libur === "tidak" ? "selected" : ""}>Nonaktif</option></select>
+            <div class="text-muted text-sm mt-1">Jika Aktif, presensi dan jurnal oleh guru ditolak pada hari Minggu dan pada agenda berkategori <b>Libur</b> (admin selalu boleh; blokir bisa dimatikan per hari libur di Kalender).</div></div>
           ${isAdmin ? `<button class="btn btn-primary btn-block" type="submit">Simpan Pengaturan</button>` : ""}
           <div id="pa-pesan" class="mt-1"></div>
         </form>
@@ -484,7 +496,7 @@ async function renderPengaturanAkademik(container) {
         try {
           await Api.call("pengaturan.save", { data: {
             tahun_ajaran: document.getElementById("pa-tahun").value.trim(), semester_aktif: document.getElementById("pa-semester").value,
-            bobot_harian: document.getElementById("pa-h").value, bobot_pts: document.getElementById("pa-p").value, bobot_pas: document.getElementById("pa-a").value
+            bobot_harian: document.getElementById("pa-h").value, bobot_pts: document.getElementById("pa-p").value, bobot_pas: document.getElementById("pa-a").value, blokir_hari_libur: document.getElementById("pa-blokir").value
           } });
           RefCache.invalidate("pengaturan");
           pesan.innerHTML = `<div class="alert alert-success">Pengaturan disimpan.</div>`;
@@ -907,3 +919,326 @@ function pasangWaliMassal(container) {
     btn.disabled = false; btn.textContent = "Buat Akun Wali untuk Semua Santri";
   });
 }
+
+// ======================= POPUP AGENDA (login & beranda setiap akun) =======================
+
+// Agenda yang tampil di popup: sedang berlangsung hari ini, atau dimulai dalam 3 hari ke depan.
+function pilihAgendaPopup(agenda, hariIni) {
+  const tgl = (s) => new Date(s + "T00:00:00");
+  const hasil = [];
+  (agenda || []).forEach(a => {
+    const mulai = String(a.tanggal_mulai), selesai = String(a.tanggal_selesai || a.tanggal_mulai);
+    if (selesai < hariIni) return;
+    if (mulai <= hariIni) {
+      hasil.push(Object.assign({}, a, { label: mulai === hariIni ? "Hari ini" : "Sedang berlangsung", urut: 0 }));
+    } else {
+      const selisih = Math.round((tgl(mulai) - tgl(hariIni)) / 86400000);
+      if (selisih <= 3) hasil.push(Object.assign({}, a, { label: selisih === 1 ? "Besok" : selisih + " hari lagi", urut: selisih }));
+    }
+  });
+  return hasil.sort((a, b) => a.urut - b.urut);
+}
+
+function resetPopupAgenda() {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i);
+      if (k && k.indexOf("popup_") === 0) sessionStorage.removeItem(k);
+    }
+  } catch (e) { /* abaikan */ }
+}
+
+function tampilPopupAgenda(agenda, scope) {
+  try {
+    const hariIni = tglHariIni();
+    const kunci = `popup_${scope}_${hariIni}`;
+    if (sessionStorage.getItem(kunci)) return; // sudah tampil pada sesi ini
+    const daftar = pilihAgendaPopup(agenda, hariIni);
+    if (daftar.length === 0) return;
+    sessionStorage.setItem(kunci, "1");
+
+    const tampil = daftar.slice(0, 5);
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-box" role="dialog" aria-modal="true" aria-label="Agenda pesantren">
+        <div class="modal-kepala"><span>📅</span> Agenda Pesantren</div>
+        <div class="modal-isi">
+          ${tampil.map(a => `
+            <div class="kal-agenda">
+              <div class="bar" style="background:${warnaKategori(a.kategori)}"></div>
+              <div style="flex:1;">
+                <span class="chip" style="background:${warnaKategori(a.kategori)};color:#fff;">${esc(a.label)}</span>
+                <div style="font-weight:700;margin-top:4px;">${esc(a.judul)}</div>
+                <div class="text-muted text-sm">${fmtTanggal(a.tanggal_mulai)}${a.tanggal_selesai && a.tanggal_selesai !== a.tanggal_mulai ? " – " + fmtTanggal(a.tanggal_selesai) : ""} · ${esc(a.kategori)}</div>
+                ${a.keterangan ? `<div class="text-sm">${esc(a.keterangan)}</div>` : ""}
+              </div>
+            </div>`).join("")}
+          ${daftar.length > tampil.length ? `<div class="text-muted text-sm mt-1">dan ${daftar.length - tampil.length} agenda lainnya.</div>` : ""}
+        </div>
+        <div class="modal-aksi">
+          ${Auth.isLoggedIn() ? `<a href="#/kalender" class="btn btn-secondary" data-tutup="1">Lihat Kalender</a>` : ""}
+          <button type="button" class="btn btn-primary" data-tutup="1">Mengerti</button>
+        </div>
+      </div>`;
+    const tutup = () => { overlay.remove(); document.removeEventListener("keydown", tombol); };
+    const tombol = (e) => { if (e.key === "Escape") tutup(); };
+    overlay.addEventListener("click", (e) => { if (e.target === overlay || (e.target.dataset && e.target.dataset.tutup)) tutup(); });
+    document.addEventListener("keydown", tombol);
+    document.body.appendChild(overlay);
+  } catch (e) { /* popup bersifat tambahan: jangan ganggu halaman */ }
+}
+
+// ======================= HARI LIBUR: peringatan di form =======================
+
+async function cekLiburTanggal(tanggal) {
+  if (!tanggal) return { diblokir: false, alasan: "", admin_dikecualikan: false };
+  try { return await Api.call("libur.cek", { tanggal }); }
+  catch (e) { return { diblokir: false, alasan: "", admin_dikecualikan: false }; }
+}
+
+function pesanLiburHtml(info) {
+  if (!info || !info.diblokir) return "";
+  return info.admin_dikecualikan
+    ? `<div class="alert alert-error">Tanggal ini adalah <b>${esc(info.alasan)}</b>. Guru tidak dapat menginput, tetapi sebagai admin Anda tetap bisa.</div>`
+    : `<div class="alert alert-error">Tanggal ini adalah <b>${esc(info.alasan)}</b>. Input presensi dan jurnal oleh guru dinonaktifkan pada hari libur; hubungi admin bila perlu.</div>`;
+}
+
+// ======================= KOP RAPORT (gambar unggahan admin) =======================
+
+async function renderKopRaport(container) {
+  if (!Auth.boleh("admin")) { container.innerHTML = ""; return; }
+  let ada = "";
+  try { ada = (await Api.call("kop.get", {})).data_url || ""; } catch (e) { /* belum ada */ }
+  container.innerHTML = `
+    <div class="card">
+      <h3>Kop Raport (gambar)</h3>
+      <div class="text-muted text-sm mb-1">Unggah gambar kop surat (logo, nama, dan alamat lembaga). Kop ini dipasang di bagian atas <b>PDF raport</b>. Gambar dikecilkan otomatis; kop dengan proporsi lebar (mis. 6:1) paling pas. Tanpa kop gambar, raport memakai kop teks.</div>
+      <div id="kop-lama">${ada ? `<img src="${ada}" alt="Kop raport" style="width:100%;border:1px dashed #CBD5E1;border-radius:10px;background:#fff;">` : `<div class="empty-state">Belum ada kop gambar.</div>`}</div>
+      <div class="field mt-1"><label>Pilih gambar kop baru</label><input type="file" id="kop-file" accept="image/*"></div>
+      <div id="kop-baru"></div>
+      <div class="flex gap-1 mt-1"><button class="btn btn-primary btn-block" id="kop-simpan">Simpan Kop</button>${ada ? `<button class="btn btn-danger btn-block" id="kop-hapus">Hapus Kop</button>` : ""}</div>
+      <div id="kop-pesan" class="mt-1"></div>
+    </div>`;
+  let baru = "";
+  document.getElementById("kop-file").addEventListener("change", async (e) => {
+    const f = e.target.files[0], prev = document.getElementById("kop-baru");
+    baru = "";
+    if (!f) { prev.innerHTML = ""; return; }
+    try {
+      baru = await kompresFoto(f, 800, 0.85, 48000, false);
+      prev.innerHTML = `<div class="text-muted text-sm">Pratinjau (${Math.round(baru.length / 1024)} KB setelah dikecilkan):</div><img src="${baru}" alt="" style="width:100%;border:1px solid #A7F3D0;border-radius:10px;">`;
+    } catch (err) { prev.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+  });
+  document.getElementById("kop-simpan").addEventListener("click", async (e) => {
+    const pesan = document.getElementById("kop-pesan");
+    if (!baru) { pesan.innerHTML = `<div class="alert alert-error">Pilih gambar kop dulu.</div>`; return; }
+    e.target.disabled = true;
+    try {
+      await Api.call("kop.simpan", { gambar_base64: baru });
+      pesan.innerHTML = `<div class="alert alert-success">Kop raport disimpan.</div>`;
+      renderKopRaport(container);
+    } catch (err) { pesan.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; e.target.disabled = false; }
+  });
+  const hapus = document.getElementById("kop-hapus");
+  if (hapus) hapus.addEventListener("click", async () => {
+    if (!confirm("Hapus kop gambar? Raport akan kembali memakai kop teks.")) return;
+    try { await Api.call("kop.hapus", {}); renderKopRaport(container); } catch (err) { alert(err.message); }
+  });
+}
+
+// ======================= JURNAL MENGAJAR (guru mengisi; admin/guru dapat mengubah & menghapus) =======================
+
+function labelJamSlot(s) {
+  return s.mulai ? `${s.label} (${s.mulai}${s.selesai ? "–" + s.selesai : ""})` : s.label;
+}
+
+Router.add("jurnal", async (root) => {
+  root.innerHTML = Shell("jurnal", `<div class="loading">Memuat...</div>`);
+  const main = document.querySelector("main.content");
+  const profil = Auth.getProfil();
+  const isAdmin = profil.peran === "admin";
+  const penginput = profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq";
+  const pemantau = !penginput; // admin & pimpinan melihat semua jurnal
+  const st = { edit: null };
+  const el = (id) => document.getElementById(id);
+
+  try {
+    const [jamRes, kelasRes, kelompokRes, mapelRes] = await Promise.all([Ref.jam(), Ref.kelas(), Ref.kelompok(), Ref.mapel()]);
+    const slotJam = (jamRes.items || []).filter(s => s.jenis === "jam");
+    const semuaMapel = (mapelRes.items || []).map(m => m.nama_mapel);
+    const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
+
+    // Daftar kelas/kelompok yang boleh dipilih pada form (admin: semua, sesuai jenis jurnal yang diedit)
+    function opsiRef(jenisJurnal) {
+      if (isAdmin) return jenisJurnal === "sekolah"
+        ? { list: kelasRes.items || [], label: "Kelas", field: "nama_kelas" }
+        : { list: kelompokRes.items || [], label: "Kelompok PTQ", field: "nama_kelompok" };
+      if (profil.peran === "guru_mapel") {
+        const d = (profil.kelas_diampu || "").split(",");
+        return { list: (kelasRes.items || []).filter(k => d.indexOf(k.id) !== -1), label: "Kelas", field: "nama_kelas" };
+      }
+      const d = (profil.kelompok_diampu || "").split(",");
+      return { list: (kelompokRes.items || []).filter(k => d.indexOf(k.id) !== -1), label: "Kelompok PTQ", field: "nama_kelompok" };
+    }
+
+    main.innerHTML = `
+      <div id="jr-form"></div>
+      <div class="card">
+        <h3>${pemantau ? "Pantauan Jurnal Guru" : "Jurnal Saya"}</h3>
+        <div class="grid-2">
+          <div class="field"><label>Bulan</label><input type="month" id="jr-bulan" value="${bulanIniStr()}"></div>
+          ${pemantau ? `<div class="field"><label>Guru</label><select id="jr-guru"><option value="">Semua guru</option></select></div>` : ""}
+        </div>
+        <div id="jr-ringkasan"></div>
+        <div id="jr-list"><div class="loading">Memuat jurnal...</div></div>
+      </div>`;
+
+    function gambarForm() {
+      const wadah = el("jr-form");
+      const e = st.edit;
+      if (!penginput && !e) {
+        wadah.innerHTML = isAdmin ? `<div class="card"><div class="text-muted text-sm">Jurnal diisi oleh guru. Sebagai admin, Anda dapat <b>mengubah</b> atau <b>menghapus</b> jurnal yang salah lewat tombol di tabel di bawah.</div><div id="jr-pesan" class="mt-1"></div></div>` : "";
+        return;
+      }
+      const jenisJurnal = e ? e.jenis : (profil.peran === "guru_mapel" ? "sekolah" : "ptq");
+      const ref = opsiRef(jenisJurnal);
+      const mapelPilihan = (isAdmin || mapelSaya.length === 0) ? null : mapelSaya.slice();
+      if (mapelPilihan && e && mapelPilihan.indexOf(e.mapel) === -1) mapelPilihan.push(e.mapel);
+      const jamLabel = slotJam.map(s => s.label);
+      if (e && e.jam_ke && jamLabel.indexOf(e.jam_ke) === -1) jamLabel.push(e.jam_ke);
+      const v = (f) => e ? esc(e[f] || "") : "";
+      wadah.innerHTML = `
+        <div class="card">
+          <h3>${e ? "Ubah Jurnal" + (isAdmin ? " (koreksi admin" + (e.nama_guru ? " — " + esc(e.nama_guru) : "") + ")" : "") : "Isi Jurnal Mengajar"}</h3>
+          <form id="form-jurnal">
+            <div class="grid-2">
+              <div class="field"><label>Tanggal</label><input type="date" id="jr-tanggal" value="${e ? esc(e.tanggal) : tglHariIni()}" required></div>
+              <div class="field"><label>${ref.label}</label>
+                <select id="jr-ref" required>${ref.list.length === 0 ? `<option value="">(belum ditugaskan)</option>` : ref.list.map(k => `<option value="${esc(k.id)}" ${e && String(e.id_ref) === String(k.id) ? "selected" : ""}>${esc(k[ref.field])}</option>`).join("")}</select>
+              </div>
+            </div>
+            <div id="jr-libur"></div>
+            <div class="grid-2">
+              <div class="field"><label>Jam ke-</label>
+                ${jamLabel.length === 0 ? `<input type="text" id="jr-jam" value="${v("jam_ke")}" placeholder="mis. Jam ke-1" required>`
+                  : `<select id="jr-jam" required>${jamLabel.map(l => { const s = slotJam.find(x => x.label === l); return `<option value="${esc(l)}" ${e && e.jam_ke === l ? "selected" : ""}>${esc(s ? labelJamSlot(s) : l)}</option>`; }).join("")}</select>`}
+              </div>
+              <div class="field"><label>Mata Pelajaran</label>
+                ${mapelPilihan
+                  ? `<select id="jr-mapel" required>${mapelPilihan.map(m => `<option value="${esc(m)}" ${e && e.mapel === m ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>`
+                  : `<input type="text" id="jr-mapel" list="jr-mapel-list" value="${v("mapel")}" placeholder="mis. Tahfidz" required><datalist id="jr-mapel-list">${semuaMapel.map(m => `<option value="${esc(m)}"></option>`).join("")}</datalist>`}
+              </div>
+            </div>
+            <div class="field"><label>Materi yang Diajarkan</label><textarea id="jr-materi" rows="3" required placeholder="Tuliskan materi/pokok bahasan">${v("materi")}</textarea></div>
+            <div class="field"><label>Catatan (opsional)</label><input type="text" id="jr-catatan" value="${v("catatan")}" placeholder="mis. tugas, kendala, santri yang perlu perhatian"></div>
+            <button class="btn btn-primary btn-block" type="submit" id="jr-simpan">${e ? "Simpan Perubahan" : "Simpan Jurnal"}</button>
+            ${e ? `<button type="button" class="btn btn-secondary btn-block mt-1" id="jr-batal">Batal Ubah</button>` : ""}
+            <div id="jr-pesan" class="mt-1"></div>
+          </form>
+        </div>`;
+
+      const periksa = async () => {
+        const info = await cekLiburTanggal(el("jr-tanggal").value);
+        el("jr-libur").innerHTML = pesanLiburHtml(info);
+        el("jr-simpan").disabled = info.diblokir && !info.admin_dikecualikan;
+      };
+      el("jr-tanggal").addEventListener("change", periksa);
+      periksa();
+      const batal = el("jr-batal");
+      if (batal) batal.addEventListener("click", () => { st.edit = null; gambarForm(); });
+
+      el("form-jurnal").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const btn = el("jr-simpan"), pesanEl = el("jr-pesan");
+        btn.disabled = true; btn.textContent = "Menyimpan...";
+        pesanEl.innerHTML = "";
+        try {
+          await Api.call("jurnal.save", { data: {
+            id: e ? e.id : undefined, tanggal: el("jr-tanggal").value, id_ref: el("jr-ref").value, jam_ke: el("jr-jam").value,
+            mapel: el("jr-mapel").value, materi: el("jr-materi").value, catatan: el("jr-catatan").value
+          } });
+          const sebelumnya = !!e;
+          st.edit = null;
+          gambarForm();
+          const kotakPesan = el("jr-pesan");
+          if (kotakPesan) kotakPesan.innerHTML = `<div class="alert alert-success">${sebelumnya ? "Perubahan jurnal tersimpan." : "Jurnal tersimpan."}</div>`;
+          muatJurnal();
+        } catch (err) {
+          pesanEl.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+          btn.disabled = false; btn.textContent = e ? "Simpan Perubahan" : "Simpan Jurnal";
+        }
+      });
+    }
+
+    let semuaItems = [];
+    function gambarList() {
+      const listEl = el("jr-list");
+      const guruTerpilih = pemantau ? el("jr-guru").value : "";
+      const items = guruTerpilih ? semuaItems.filter(j => String(j.id_guru) === guruTerpilih) : semuaItems;
+
+      if (pemantau) {
+        const per = {};
+        semuaItems.forEach(j => {
+          const k = per[j.id_guru] || (per[j.id_guru] = { nama: j.nama_guru, jumlah: 0, hari: {} });
+          k.jumlah++; k.hari[j.tanggal] = true;
+        });
+        const baris = Object.keys(per).map(id => per[id]).sort((a, b) => b.jumlah - a.jumlah);
+        el("jr-ringkasan").innerHTML = baris.length === 0 ? "" : `
+          <div class="text-muted text-sm mb-1">Ringkasan bulan ini: jumlah jurnal yang sudah diisi tiap guru.</div>
+          <div class="table-wrap mb-1"><table class="data-table">
+            <tr><th>Guru</th><th>Jumlah Jurnal</th><th>Hari Mengisi</th></tr>
+            ${baris.map(b => `<tr><td>${esc(b.nama)}</td><td>${b.jumlah}</td><td>${Object.keys(b.hari).length}</td></tr>`).join("")}
+          </table></div>`;
+      }
+
+      const bisaKelola = penginput || isAdmin;
+      if (items.length === 0) { listEl.innerHTML = `<div class="empty-state">Belum ada jurnal pada bulan ini.</div>`; return; }
+      listEl.innerHTML = `<div class="table-wrap"><table class="data-table">
+        <tr><th>Tanggal</th><th>Jam</th><th>${pemantau ? "Guru" : "Kelas/Kelompok"}</th>${pemantau ? "<th>Kelas/Kelompok</th>" : ""}<th>Mapel</th><th>Materi</th><th>Catatan</th>${bisaKelola ? "<th></th>" : ""}</tr>
+        ${items.map(j => `<tr>
+          <td style="white-space:nowrap;">${esc(j.tanggal)}</td>
+          <td style="white-space:nowrap;">${esc(j.jam_ke)}</td>
+          <td>${esc(pemantau ? j.nama_guru : j.nama_ref)}</td>
+          ${pemantau ? `<td>${esc(j.nama_ref)}</td>` : ""}
+          <td>${esc(j.mapel)}</td>
+          <td style="min-width:180px;">${esc(j.materi)}</td>
+          <td>${esc(j.catatan) || "-"}</td>
+          ${bisaKelola ? `<td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-edit="${esc(j.id)}">Ubah</button> <button class="btn btn-danger btn-sm" data-hapus="${esc(j.id)}">Hapus</button></td>` : ""}
+        </tr>`).join("")}
+      </table></div>`;
+      listEl.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => {
+        st.edit = semuaItems.find(j => j.id === b.dataset.edit);
+        gambarForm();
+        window.scrollTo(0, 0);
+      }));
+      listEl.querySelectorAll("[data-hapus]").forEach(b => b.addEventListener("click", async () => {
+        if (!confirm("Hapus jurnal ini?")) return;
+        try { await Api.call("jurnal.hapus", { id: b.dataset.hapus }); if (st.edit && st.edit.id === b.dataset.hapus) { st.edit = null; gambarForm(); } muatJurnal(); }
+        catch (err) { alert(err.message); }
+      }));
+    }
+
+    async function muatJurnal() {
+      const listEl = el("jr-list");
+      listEl.innerHTML = `<div class="loading">Memuat jurnal...</div>`;
+      try {
+        const data = await Api.call("jurnal.list", { bulan: el("jr-bulan").value });
+        semuaItems = data.items || [];
+        if (pemantau) {
+          const sel = el("jr-guru");
+          const dipilih = sel.value;
+          const guru = {};
+          semuaItems.forEach(j => { guru[j.id_guru] = j.nama_guru; });
+          sel.innerHTML = `<option value="">Semua guru</option>` + Object.keys(guru).map(id => `<option value="${esc(id)}" ${id === dipilih ? "selected" : ""}>${esc(guru[id])}</option>`).join("");
+        }
+        gambarList();
+      } catch (err) { tampilkanGalat(listEl, err); }
+    }
+
+    el("jr-bulan").addEventListener("change", muatJurnal);
+    if (pemantau) el("jr-guru").addEventListener("change", gambarList);
+    gambarForm();
+    await muatJurnal();
+  } catch (err) { tampilkanGalat(main, err); }
+});

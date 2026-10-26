@@ -7,6 +7,7 @@
   <link rel="icon" href="assets/logo.png">
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -22,8 +23,10 @@
   <script src="js/router.js"></script>
   <script src="js/pages.js"></script>
   <script src="js/pages2.js"></script>
+  <script src="js/pages3.js"></script>
   <script>
     if (Auth.isLoggedIn() && Auth.peran() === "wali_santri") NotifState.mulai(); // pantau perkembangan anak
+    muatLatarAplikasi(); // latar belakang foto dari admin (jika ada)
     Router.init();
   </script>
 </body>

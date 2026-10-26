@@ -423,7 +423,7 @@ Router.add("login", async (root) => {
       Auth.setSesi(data.token, data.profil);
       resetPopupAgenda(); // tampilkan popup agenda lagi di Beranda akun ini
       if (data.profil.peran === "wali_santri") NotifState.mulai(); else prefetchSemua();
-      Router.go(Router.berandaUntukPeran());
+      Router.go(data.profil.wajib_ganti ? "profil" : Router.berandaUntukPeran()); // sandi sementara: arahkan ganti sandi dulu
     } catch (err) {
       alertBox.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
       btn.disabled = false; btn.textContent = "Masuk";

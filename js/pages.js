@@ -7,6 +7,7 @@ function esc(s) {
 
 const NAV_ITEMS = [
   { key: "dashboard", label: "Beranda", icon: "🏠", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "harian", label: "Input Cepat", icon: "⚡", roles: ["guru_mapel", "pengajar_tpq"] },
   { key: "anaksaya", label: "Anak Saya", icon: "🧒", roles: ["wali_santri"] },
   { key: "presensi", label: "Presensi", icon: "✅", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "jurnal", label: "Jurnal", icon: "📝", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
@@ -14,6 +15,7 @@ const NAV_ITEMS = [
   { key: "raport", label: "Raport", icon: "📄", roles: ["admin", "guru_mapel", "pimpinan", "wali_santri"] },
   { key: "hafalan", label: "Hafalan", icon: "📖", roles: ["admin", "pengajar_tpq", "pimpinan"] },
   { key: "santri", label: "Santri", icon: "👤", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "kartu", label: "Kartu Santri", icon: "🪪", roles: ["admin"] },
   { key: "pelanggaran", label: "Pelanggaran", icon: "⚠️", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "jumatamal", label: "Jumat Amal", icon: "🤲", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "pengumuman", label: "Pengumuman", icon: "📢", roles: null },
@@ -22,7 +24,8 @@ const NAV_ITEMS = [
   { key: "jam", label: "Pengaturan Akademik", icon: "🛠️", roles: ["admin", "pimpinan"] },
   { key: "prestasi", label: "Prestasi", icon: "🏅", roles: ["admin", "pimpinan"] },
   { key: "laporan", label: "Laporan", icon: "🖨️", roles: ["admin", "pimpinan"] },
-  { key: "akun", label: "Akun", icon: "⚙️", roles: ["admin"] }
+  { key: "akun", label: "Kelola Akun", icon: "⚙️", roles: ["admin"] },
+  { key: "profil", label: "Akun Saya", icon: "🔐", roles: null }
 ];
 
 function navBolehTampil(item) {
@@ -71,18 +74,19 @@ function Shell(activeKey, innerHtml) {
       </nav>
       <div style="flex:1;">
         <header class="app-header">
-          ${avatarKecil(profil, 30)}
+          <a href="#/profil" title="Akun Saya" style="display:flex;">${avatarKecil(profil, 30)}</a>
           <div class="title">${judulHalaman(activeKey)}</div>
           <div class="spacer"></div>
           ${profil && profil.peran === "wali_santri" ? `<button class="btn-icon" style="position:relative;margin-right:6px;" onclick="Router.go('notifikasi')" title="Notifikasi">🔔<span id="notif-badge" class="notif-badge" style="display:${NotifState.belum > 0 ? "flex" : "none"};">${NotifState.belum > 9 ? "9+" : NotifState.belum}</span></button>` : ""}
           <button class="btn-icon" onclick="logoutSekarang()" title="Keluar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></button>
         </header>
+        ${profil && profil.wajib_ganti ? `<div class="banner-sandi">🔐 Anda masih memakai sandi sementara. <a href="#/profil">Ganti sandi sekarang</a></div>` : ""}
         <main class="content">${innerHtml}</main>
       </div>
     </div>
     <nav class="bottom-nav">
-      ${bottomItems.map(n => `<a href="#/${n.key}" class="${n.key === activeKey ? "active" : ""}"><span class="icon">${n.icon}</span>${n.label}</a>`).join("")}
-      ${adaMenuLain ? `<a href="#/menu" class="${menuAktif ? "active" : ""}"><span class="icon">☰</span>Menu</a>` : ""}
+      ${bottomItems.map(n => `<a href="#/${n.key}" class="${n.key === activeKey ? "active" : ""}"><span class="icon">${n.icon}</span><span class="lbl">${n.label}</span></a>`).join("")}
+      ${adaMenuLain ? `<a href="#/menu" class="${menuAktif ? "active" : ""}"><span class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></span><span class="lbl">Menu</span></a>` : ""}
     </nav>
   `;
 }
@@ -92,7 +96,7 @@ function judulHalaman(key) {
   const map = {
     dashboard: "Beranda", presensi: "Presensi", hafalan: "Hafalan Al-Qur'an",
     santri: "Data Santri", master: "Data Master", prestasi: "Prestasi Santri",
-    laporan: "Laporan", akun: "Kelola Akun", jurnal: "Jurnal Mengajar", jam: "Pengaturan Akademik", menu: "Semua Menu", nilai: "Nilai", raport: "Raport", pelanggaran: "Pelanggaran Santri", jumatamal: "Laporan Jumat Amal", pengumuman: "Pengumuman", kalender: "Kalender Pendidikan", anaksaya: "Anak Saya", notifikasi: "Notifikasi"
+    laporan: "Laporan", akun: "Kelola Akun", jurnal: "Jurnal Mengajar", jam: "Pengaturan Akademik", menu: "Semua Menu", nilai: "Nilai", raport: "Raport", pelanggaran: "Pelanggaran Santri", jumatamal: "Laporan Jumat Amal", pengumuman: "Pengumuman", kalender: "Kalender Pendidikan", anaksaya: "Anak Saya", notifikasi: "Notifikasi", harian: "Input Harian Cepat", kartu: "Kartu Tanda Santri", profil: "Akun Saya"
   };
   return map[key] || "SIM Santri";
 }
@@ -656,67 +660,6 @@ Router.add("santri", async (root, params) => {
   }
 });
 
-async function renderSantriDetail(root, id) {
-  root.innerHTML = Shell("santri", `<div class="loading">Memuat detail...</div>`);
-  const main = document.querySelector("main.content");
-  const isAdmin = Auth.boleh("admin");
-  const isAdminPimpinan = Auth.boleh("admin", "pimpinan");
-  try {
-    const data = await Api.call("santri.detail", { id });
-    const s = data.santri;
-    main.innerHTML = `
-      <button class="btn btn-secondary btn-sm mb-1" onclick="Router.go('santri')">&larr; Kembali</button>
-      <div class="card">
-        <div class="flex-between">
-          <div class="flex gap-1" style="align-items:center;">
-            ${avatarKecil({ id: s.id, nama: s.nama, url_foto: s.url_foto }, 56)}
-            <div>
-              <h3 style="margin:0;">${s.nama}</h3>
-              <div class="text-muted text-sm">NIS ${s.nis} &bull; ${s.jenis_kelamin === "L" ? "Laki-laki" : "Perempuan"}</div>
-            </div>
-          </div>
-          <div>${chipTipe(s.tipe)}</div>
-        </div>
-        <div class="mt-2 text-sm">
-          <div><b>Tempat/Tgl Lahir:</b> ${s.tempat_lahir || "-"}, ${s.tgl_lahir || "-"}</div>
-          <div><b>Alamat:</b> ${s.alamat || "-"}</div>
-        </div>
-        ${isAdmin ? `<button class="btn btn-secondary btn-sm mt-2" onclick="Router.go('santri',{form:1, editId:'${s.id}'})">Edit Data Santri</button>` : ""}
-        ${isAdminPimpinan ? `<button class="btn btn-accent btn-sm mt-2" onclick="Router.go('laporan',{id:'${s.id}'})">Cetak Laporan</button>` : ""}
-      </div>
-
-      <div class="card">
-        <h3>Riwayat Hafalan (${data.riwayat_hafalan.length})</h3>
-        ${data.riwayat_hafalan.length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
-          data.riwayat_hafalan.slice(0, 5).map(h => `<div class="text-sm mb-1">${h.tanggal} &mdash; Juz ${h.juz}, ${h.surah}:${h.ayat_awal}-${h.ayat_akhir}</div>`).join("")}
-      </div>
-
-      <div class="card">
-        <h3>Riwayat Presensi Sekolah (${data.riwayat_presensi_sekolah.length})</h3>
-        ${data.riwayat_presensi_sekolah.length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
-          data.riwayat_presensi_sekolah.slice(0, 5).map(p => `<div class="text-sm mb-1">${p.tanggal} ${chipStatus(p.status)}</div>`).join("")}
-      </div>
-
-      <div class="card">
-        <h3>Riwayat Prestasi (${data.riwayat_prestasi.length})</h3>
-        ${data.riwayat_prestasi.length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
-          data.riwayat_prestasi.map(p => `<div class="text-sm mb-1"><b>${p.nama_prestasi}</b> &mdash; ${p.tingkat} (${p.tanggal})</div>`).join("")}
-      </div>
-
-      <div class="card">
-        <h3>Riwayat Pelanggaran (${(data.riwayat_pelanggaran || []).length})</h3>
-        ${(data.riwayat_pelanggaran || []).length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
-          data.riwayat_pelanggaran.map(p => `<div class="text-sm mb-1"><b>${esc(p.jenis_pelanggaran)}</b> (${fmtTanggal(p.tanggal)}) &mdash; ${esc(p.penanganan)} <span class="text-muted">oleh ${esc(p.penangan)}</span></div>`).join("")}
-      </div>
-
-      <div id="pesan-wrap"></div>
-    `;
-    await pasangPesanWidget(document.getElementById("pesan-wrap"), s.id);
-  } catch (err) {
-    tampilkanGalat(main, err);
-  }
-}
-
 async function renderSantriForm(root, editId) {
   root.innerHTML = Shell("santri", `<div class="loading">Memuat form...</div>`);
   const main = document.querySelector("main.content");
@@ -749,6 +692,16 @@ async function renderSantriForm(root, editId) {
             <div class="field"><label>Tanggal Lahir</label><input type="date" id="f-tgl" value="${v("tgl_lahir")}"></div>
           </div>
           <div class="field"><label>Alamat</label><textarea id="f-alamat" rows="2">${v("alamat")}</textarea></div>
+          <div class="grid-2">
+            <div class="field"><label>NISN (opsional)</label><input type="text" id="f-nisn" value="${esc(v("nisn"))}" inputmode="numeric"></div>
+            <div class="field"><label>Tahun Masuk</label><input type="number" id="f-tahun-masuk" min="2000" max="2100" value="${esc(v("tahun_masuk"))}" placeholder="mis. 2023"></div>
+          </div>
+          <h4 style="margin:6px 0 8px;color:var(--emerald-deep);">Data Wali / Orang Tua</h4>
+          <div class="grid-2">
+            <div class="field"><label>Nama Wali</label><input type="text" id="f-nama-wali" value="${esc(v("nama_wali"))}"></div>
+            <div class="field"><label>Hubungan</label><select id="f-hubungan-wali">${["Ayah", "Ibu", "Wali lainnya"].map(h => `<option ${v("hubungan_wali") === h ? "selected" : ""}>${h}</option>`).join("")}</select></div>
+          </div>
+          <div class="field"><label>No. WhatsApp / Telepon Wali</label><input type="tel" id="f-kontak-wali" value="${esc(v("kontak_wali"))}" inputmode="tel" placeholder="mis. 081234567890"></div>
           <div class="grid-2">
             <div class="field"><label>Kelas</label><select id="f-kelas"><option value="">-</option>${kelasData.items.map(k => `<option value="${k.id}" ${v("id_kelas") === k.id ? "selected" : ""}>${k.nama_kelas}</option>`).join("")}</select></div>
             <div class="field"><label>Kelompok PTQ</label><select id="f-kelompok"><option value="">-</option>${kelompokData.items.map(k => `<option value="${k.id}" ${v("id_kelompok") === k.id ? "selected" : ""}>${k.nama_kelompok}</option>`).join("")}</select></div>
@@ -784,6 +737,11 @@ async function renderSantriForm(root, editId) {
           tempat_lahir: document.getElementById("f-tempat").value,
           tgl_lahir: document.getElementById("f-tgl").value,
           alamat: document.getElementById("f-alamat").value,
+          nisn: document.getElementById("f-nisn").value.trim(),
+          tahun_masuk: document.getElementById("f-tahun-masuk").value,
+          nama_wali: document.getElementById("f-nama-wali").value.trim(),
+          hubungan_wali: document.getElementById("f-hubungan-wali").value,
+          kontak_wali: document.getElementById("f-kontak-wali").value.trim(),
           id_kelas: document.getElementById("f-kelas").value,
           id_kelompok: document.getElementById("f-kelompok").value,
           id_kamar: document.getElementById("f-kamar").value
@@ -1090,12 +1048,17 @@ Router.add("akun", async (root, params) => {
       const daftarKelompok = kelompokRes.items || [];
       const daftarSantri = (santriRes.items || []).filter(s => s.status === "aktif");
       const daftarMapel = mapelRes.items || [];
+      window.__akunDaftar = akunList;
       const existing = editingId ? akunList.find(a => a.id === editingId) : null;
       if (editingId && !existing) { Router.go("akun"); return; }
 
       const v = (f, d) => existing ? (existing[f] || d || "") : (d || "");
 
       main.innerHTML = `
+        <div class="card">
+          <h3>Tentang Sandi Akun</h3>
+          <div class="text-sm">Sandi disimpan <b>terenkripsi</b> sehingga <b>tidak bisa dilihat siapa pun</b>, termasuk admin &mdash; ini disengaja demi keamanan. Bila ada pengguna yang lupa sandi: tekan <b>Reset Sandi</b> pada akunnya, sampaikan sandi sementara yang muncul, lalu pengguna menggantinya sendiri lewat menu <b>Akun Saya</b>.</div>
+        </div>
         <div id="wali-massal"></div>
         <div class="card">
           <h3>${existing ? "Edit Akun: " + existing.nama : "Buat Akun Baru"}</h3>
@@ -1168,11 +1131,12 @@ Router.add("akun", async (root, params) => {
             <tr><th></th><th>Nama</th><th>Username</th><th>Peran</th><th>Status</th><th>Aksi</th></tr>
             ${akunList.map(a => `<tr>
               <td>${avatarKecil({ id: a.id, nama: a.nama, url_foto: a.url_foto }, 30)}</td>
-              <td>${a.nama}${a.mapel ? `<div class="text-muted text-sm">${a.mapel}</div>` : ""}</td>
+              <td>${a.nama}${a.mapel ? `<div class="text-muted text-sm">${a.mapel}</div>` : ""}${a.wajib_ganti ? `<div><span class="chip chip-izin">Sandi sementara</span></div>` : ""}</td>
               <td>${a.username}</td><td>${labelPeran(a.peran)}</td>
               <td>${a.status === "aktif" ? `<span class="chip chip-hadir">Aktif</span>` : `<span class="chip chip-nonaktif">Nonaktif</span>`}</td>
               <td style="white-space:nowrap;">
                 <button class="btn btn-secondary btn-sm" onclick="Router.go('akun',{edit:'${a.id}'})">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick='resetSandiCepat("${a.id}")'>Reset Sandi</button>
                 <button class="btn btn-secondary btn-sm" onclick='toggleAkun("${a.id}")'>${a.status === "aktif" ? "Nonaktifkan" : "Aktifkan"}</button>
               </td>
             </tr>`).join("")}
@@ -1362,11 +1326,7 @@ Router.add("anaksaya", async (root) => {
     const data = await Api.call("wali.anakSaya", {});
     const s = data.santri;
     main.innerHTML = `
-      <div class="card" style="text-align:center;">
-        <div style="margin:0 auto 10px;">${avatarKecil({ id: s.id, nama: s.nama, url_foto: s.url_foto }, 96)}</div>
-        <h3 style="margin:0;font-size:20px;">${s.nama}</h3>
-        <div class="text-muted text-sm">NIS ${s.nis} &bull; ${chipTipe(s.tipe)}</div>
-      </div>
+      ${await profilSantriHtml(data, { wali: true })}
 
       <div class="card">
         <h3>Tabel Pemantauan Bulan Ini (${namaBulanIndo(bulanIniStr())})</h3>
@@ -1670,6 +1630,7 @@ Router.add("jam", async (root, params) => {
     main.innerHTML = `
       <div id="peng-akademik"></div>
       <div id="peng-kop"></div>
+      <div id="peng-latar"></div>
       <div class="card">
         <h3>Jadwal Jam Pelajaran</h3>
         <div class="text-muted text-sm mb-1">Urutan jam mengajar, istirahat, dan pulang. Jam ini muncul sebagai pilihan "Jam ke-" saat guru mengisi jurnal.</div>
@@ -1714,6 +1675,7 @@ Router.add("jam", async (root, params) => {
 
     renderPengaturanAkademik(document.getElementById("peng-akademik"));
     renderKopRaport(document.getElementById("peng-kop"));
+    renderLatarAplikasi(document.getElementById("peng-latar"));
     if (isAdmin) {
       document.getElementById("form-jam").addEventListener("submit", async (e) => {
         e.preventDefault();

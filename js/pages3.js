@@ -540,3 +540,136 @@ async function renderLatarAplikasi(container) {
     try { await Api.call("latar.hapus", {}); terapkanLatar(""); localStorage.removeItem("simsantri_latar"); renderLatarAplikasi(container); } catch (err) { alert(err.message); }
   });
 }
+
+// ======================= PENGATURAN RAPORT (kop sekolah & yayasan, penandatangan, urutan mapel) =======================
+
+async function renderPengaturanRaport(container) {
+  if (!Auth.boleh("admin")) { container.innerHTML = ""; return; }
+  container.innerHTML = `<div class="card"><div class="loading">Memuat pengaturan raport...</div></div>`;
+  let set, mapelMaster, kop = { sekolah: "", yayasan: "" };
+  try {
+    const hasil = await Promise.all([
+      Api.call("raportset.get", {}), Ref.mapel(),
+      Api.call("kop.get", { jenis: "sekolah" }).catch(() => ({ data_url: "" })),
+      Api.call("kop.get", { jenis: "yayasan" }).catch(() => ({ data_url: "" }))
+    ]);
+    set = hasil[0]; mapelMaster = (hasil[1].items || []).map(m => m.nama_mapel);
+    kop.sekolah = hasil[2].data_url || ""; kop.yayasan = hasil[3].data_url || "";
+  } catch (err) { tampilkanGalat(container, err); return; }
+
+  // Urutan awal: yang sudah diatur admin lebih dulu, sisanya (mapel master lain) di bawahnya.
+  const urut = set.urutan_mapel.slice();
+  mapelMaster.forEach(m => { if (urut.indexOf(m) === -1) urut.push(m); });
+
+  const blokKop = (jenis, judul) => `
+    <div class="kop-blok">
+      <div style="font-weight:700;margin-bottom:6px;">${judul}</div>
+      <div id="kop-lama-${jenis}">${kop[jenis] ? `<img src="${kop[jenis]}" alt="Kop ${judul}" style="width:100%;border:1px dashed #CBD5E1;border-radius:10px;background:#fff;">` : `<div class="empty-state" style="padding:16px;">Belum ada gambar.</div>`}</div>
+      <input type="file" id="kop-file-${jenis}" accept="image/*" style="margin-top:8px;">
+      <div id="kop-baru-${jenis}"></div>
+      <div class="flex gap-1 mt-1"><button type="button" class="btn btn-primary btn-sm" id="kop-simpan-${jenis}">Simpan Gambar</button>${kop[jenis] ? `<button type="button" class="btn btn-danger btn-sm" id="kop-hapus-${jenis}">Hapus</button>` : ""}</div>
+    </div>`;
+
+  container.innerHTML = `
+    <div class="card">
+      <h3>Raport &mdash; Kop (Sekolah &amp; Yayasan)</h3>
+      <div class="text-muted text-sm mb-1">Unggah kop surat masing-masing (logo, nama, alamat) lalu pilih kop yang dipakai di raport. Gambar dikecilkan otomatis; proporsi lebar (mis. 6:1) paling pas dan gambar sederhana lebih aman.</div>
+      <div class="grid-2" style="align-items:start;">${blokKop("sekolah", "Kop Sekolah")}${blokKop("yayasan", "Kop Yayasan")}</div>
+      <div class="field mt-2"><label>Kop yang dipakai di raport</label>
+        <select id="rs-kop-pakai">
+          <option value="sekolah" ${set.kop_pakai === "sekolah" ? "selected" : ""}>Kop Sekolah</option>
+          <option value="yayasan" ${set.kop_pakai === "yayasan" ? "selected" : ""}>Kop Yayasan</option>
+          <option value="keduanya" ${set.kop_pakai === "keduanya" ? "selected" : ""}>Kop Yayasan + Kop Sekolah (bersusun)</option>
+          <option value="teks" ${set.kop_pakai === "teks" ? "selected" : ""}>Kop teks (tanpa gambar)</option>
+        </select>
+        <div class="text-muted text-sm mt-1">Bila kop yang dipilih belum diunggah, raport otomatis memakai kop teks.</div>
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="rs-simpan-kop">Simpan Pilihan Kop</button>
+      <div id="rs-pesan-kop" class="mt-1"></div>
+    </div>
+
+    <div class="card">
+      <h3>Raport &mdash; Penandatangan</h3>
+      <div class="text-muted text-sm mb-1">Urutan tanda tangan di raport (kiri ke kanan): <b>Pengasuh Pondok Pesantren, Kepala Sekolah, Wali Murid</b>. Nama terisi otomatis; nama <b>Wali Murid</b> diambil dari data wali santri (Edit Santri &rarr; Data Wali).</div>
+      <div class="field"><label>Nama Pengasuh Pondok Pesantren</label><input type="text" id="rs-pengasuh" value="${esc(set.nama_pengasuh)}" maxlength="120" placeholder="mis. KH. Ahmad Asyhari"></div>
+      <div class="field"><label>Nama Kepala Sekolah</label><input type="text" id="rs-kepsek" value="${esc(set.nama_kepala_sekolah)}" maxlength="120" placeholder="mis. Ust. Budi Santoso, S.Pd"></div>
+      <div class="grid-2">
+        <div class="field"><label>NIP/NIY Kepala Sekolah (opsional)</label><input type="text" id="rs-nip" value="${esc(set.nip_kepala_sekolah)}" maxlength="120"></div>
+        <div class="field"><label>Tempat penandatanganan</label><input type="text" id="rs-tempat" value="${esc(set.tempat_ttd)}" maxlength="120" placeholder="mis. Rogojampi"></div>
+      </div>
+      <div class="text-muted text-sm mb-1">Tanggal di raport otomatis memakai tanggal saat raport dicetak.</div>
+      <button type="button" class="btn btn-primary btn-block" id="rs-simpan-ttd">Simpan Penandatangan</button>
+      <div id="rs-pesan-ttd" class="mt-1"></div>
+    </div>
+
+    <div class="card">
+      <h3>Raport &mdash; Urutan Mata Pelajaran</h3>
+      <div class="text-muted text-sm mb-1">Atur posisi mapel pada tabel nilai raport dengan tombol ▲ ▼. Mapel yang belum tercantum di sini otomatis ditaruh di bawah, berurutan abjad.</div>
+      ${urut.length === 0 ? `<div class="empty-state">Belum ada mata pelajaran. Tambahkan di Data Master &rarr; Mata Pelajaran.</div>` : `<ol class="urut-mapel" id="ur-list"></ol>
+      <button type="button" class="btn btn-primary btn-block mt-1" id="rs-simpan-urut">Simpan Urutan</button>`}
+      <div id="rs-pesan-urut" class="mt-1"></div>
+    </div>`;
+
+  const el = (id) => document.getElementById(id);
+  const pesan = (id, ok, teks) => { el(id).innerHTML = `<div class="alert ${ok ? "alert-success" : "alert-error"}">${esc(teks)}</div>`; };
+
+  // --- unggah / hapus kop (sekolah & yayasan)
+  ["sekolah", "yayasan"].forEach(jenis => {
+    let baru = "";
+    el("kop-file-" + jenis).addEventListener("change", async (e) => {
+      const f = e.target.files[0], prev = el("kop-baru-" + jenis);
+      baru = "";
+      if (!f) { prev.innerHTML = ""; return; }
+      try {
+        baru = await kompresFoto(f, 800, 0.85, 48000, false);
+        prev.innerHTML = `<div class="text-muted text-sm mt-1">Pratinjau (${Math.round(baru.length / 1024)} KB):</div><img src="${baru}" alt="" style="width:100%;border:1px solid #A7F3D0;border-radius:10px;">`;
+      } catch (err) { prev.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+    });
+    el("kop-simpan-" + jenis).addEventListener("click", async (e) => {
+      if (!baru) { pesan("rs-pesan-kop", false, "Pilih gambar kop " + jenis + " dulu."); return; }
+      e.target.disabled = true;
+      try { await Api.call("kop.simpan", { jenis, gambar_base64: baru }); renderPengaturanRaport(container); }
+      catch (err) { pesan("rs-pesan-kop", false, err.message); e.target.disabled = false; }
+    });
+    const hapus = el("kop-hapus-" + jenis);
+    if (hapus) hapus.addEventListener("click", async () => {
+      if (!confirm("Hapus gambar kop " + jenis + "?")) return;
+      try { await Api.call("kop.hapus", { jenis }); renderPengaturanRaport(container); } catch (err) { alert(err.message); }
+    });
+  });
+
+  el("rs-simpan-kop").addEventListener("click", async () => {
+    try { await Api.call("raportset.simpan", { data: { kop_pakai: el("rs-kop-pakai").value } }); pesan("rs-pesan-kop", true, "Pilihan kop disimpan."); }
+    catch (err) { pesan("rs-pesan-kop", false, err.message); }
+  });
+  el("rs-simpan-ttd").addEventListener("click", async () => {
+    try {
+      await Api.call("raportset.simpan", { data: { nama_pengasuh: el("rs-pengasuh").value, nama_kepala_sekolah: el("rs-kepsek").value, nip_kepala_sekolah: el("rs-nip").value, tempat_ttd: el("rs-tempat").value } });
+      pesan("rs-pesan-ttd", true, "Data penandatangan disimpan.");
+    } catch (err) { pesan("rs-pesan-ttd", false, err.message); }
+  });
+
+  // --- urutan mapel
+  function gambarUrut() {
+    const daftar = el("ur-list");
+    if (!daftar) return;
+    daftar.innerHTML = urut.map((m, i) => `
+      <li><span class="urut-no">${i + 1}</span><span class="urut-nama">${esc(m)}</span>
+        <span class="urut-aksi"><button type="button" class="btn btn-secondary btn-sm" data-n="${i}" data-arah="-1" ${i === 0 ? "disabled" : ""} aria-label="Naikkan">▲</button><button type="button" class="btn btn-secondary btn-sm" data-n="${i}" data-arah="1" ${i === urut.length - 1 ? "disabled" : ""} aria-label="Turunkan">▼</button></span></li>`).join("");
+  }
+  if (el("ur-list")) {
+    gambarUrut();
+    el("ur-list").addEventListener("click", (e) => {
+      const t = e.target && e.target.closest ? e.target.closest("[data-n]") : null;
+      if (!t) return;
+      const i = Number(t.dataset.n), j = i + Number(t.dataset.arah);
+      if (j < 0 || j >= urut.length) return;
+      const x = urut[i]; urut[i] = urut[j]; urut[j] = x;
+      gambarUrut();
+    });
+    el("rs-simpan-urut").addEventListener("click", async () => {
+      try { await Api.call("raportset.simpan", { data: { urutan_mapel: urut } }); pesan("rs-pesan-urut", true, "Urutan mata pelajaran disimpan. Berlaku di tampilan dan PDF raport."); }
+      catch (err) { pesan("rs-pesan-urut", false, err.message); }
+    });
+  }
+}

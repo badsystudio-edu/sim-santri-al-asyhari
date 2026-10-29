@@ -1674,7 +1674,7 @@ Router.add("jam", async (root, params) => {
     `;
 
     renderPengaturanAkademik(document.getElementById("peng-akademik"));
-    renderKopRaport(document.getElementById("peng-kop"));
+    renderPengaturanRaport(document.getElementById("peng-kop"));
     renderLatarAplikasi(document.getElementById("peng-latar"));
     if (isAdmin) {
       document.getElementById("form-jam").addEventListener("submit", async (e) => {

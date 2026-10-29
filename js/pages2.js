@@ -1004,49 +1004,6 @@ function pesanLiburHtml(info) {
     : `<div class="alert alert-error">Tanggal ini adalah <b>${esc(info.alasan)}</b>. Input presensi dan jurnal oleh guru dinonaktifkan pada hari libur; hubungi admin bila perlu.</div>`;
 }
 
-// ======================= KOP RAPORT (gambar unggahan admin) =======================
-
-async function renderKopRaport(container) {
-  if (!Auth.boleh("admin")) { container.innerHTML = ""; return; }
-  let ada = "";
-  try { ada = (await Api.call("kop.get", {})).data_url || ""; } catch (e) { /* belum ada */ }
-  container.innerHTML = `
-    <div class="card">
-      <h3>Kop Raport (gambar)</h3>
-      <div class="text-muted text-sm mb-1">Unggah gambar kop surat (logo, nama, dan alamat lembaga). Kop ini dipasang di bagian atas <b>PDF raport</b>. Gambar dikecilkan otomatis; kop dengan proporsi lebar (mis. 6:1) paling pas. Tanpa kop gambar, raport memakai kop teks.</div>
-      <div id="kop-lama">${ada ? `<img src="${ada}" alt="Kop raport" style="width:100%;border:1px dashed #CBD5E1;border-radius:10px;background:#fff;">` : `<div class="empty-state">Belum ada kop gambar.</div>`}</div>
-      <div class="field mt-1"><label>Pilih gambar kop baru</label><input type="file" id="kop-file" accept="image/*"></div>
-      <div id="kop-baru"></div>
-      <div class="flex gap-1 mt-1"><button class="btn btn-primary btn-block" id="kop-simpan">Simpan Kop</button>${ada ? `<button class="btn btn-danger btn-block" id="kop-hapus">Hapus Kop</button>` : ""}</div>
-      <div id="kop-pesan" class="mt-1"></div>
-    </div>`;
-  let baru = "";
-  document.getElementById("kop-file").addEventListener("change", async (e) => {
-    const f = e.target.files[0], prev = document.getElementById("kop-baru");
-    baru = "";
-    if (!f) { prev.innerHTML = ""; return; }
-    try {
-      baru = await kompresFoto(f, 800, 0.85, 48000, false);
-      prev.innerHTML = `<div class="text-muted text-sm">Pratinjau (${Math.round(baru.length / 1024)} KB setelah dikecilkan):</div><img src="${baru}" alt="" style="width:100%;border:1px solid #A7F3D0;border-radius:10px;">`;
-    } catch (err) { prev.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
-  });
-  document.getElementById("kop-simpan").addEventListener("click", async (e) => {
-    const pesan = document.getElementById("kop-pesan");
-    if (!baru) { pesan.innerHTML = `<div class="alert alert-error">Pilih gambar kop dulu.</div>`; return; }
-    e.target.disabled = true;
-    try {
-      await Api.call("kop.simpan", { gambar_base64: baru });
-      pesan.innerHTML = `<div class="alert alert-success">Kop raport disimpan.</div>`;
-      renderKopRaport(container);
-    } catch (err) { pesan.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; e.target.disabled = false; }
-  });
-  const hapus = document.getElementById("kop-hapus");
-  if (hapus) hapus.addEventListener("click", async () => {
-    if (!confirm("Hapus kop gambar? Raport akan kembali memakai kop teks.")) return;
-    try { await Api.call("kop.hapus", {}); renderKopRaport(container); } catch (err) { alert(err.message); }
-  });
-}
-
 // ======================= JURNAL MENGAJAR (guru mengisi; admin/guru dapat mengubah & menghapus) =======================
 
 function labelJamSlot(s) {

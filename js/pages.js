@@ -33,6 +33,15 @@ function navBolehTampil(item) {
   return Auth.boleh(...item.roles);
 }
 
+// "Hal. 5" / "Hal. 5–9"; data lama (sebelum memakai halaman) tampil sebagai ayat.
+function teksHalaman(h) {
+  if (h.halaman_awal !== undefined && h.halaman_awal !== "" && h.halaman_awal !== null) {
+    return String(h.halaman_awal) === String(h.halaman_akhir) ? `Hal. ${h.halaman_awal}` : `Hal. ${h.halaman_awal}–${h.halaman_akhir}`;
+  }
+  if (h.ayat_awal !== undefined && h.ayat_awal !== "") return `ayat ${h.ayat_awal}–${h.ayat_akhir}`;
+  return "-";
+}
+
 function avatarKecil(profil, ukuran) {
   // Foto dimuat belakangan oleh foto.js (hidrasiFoto) memakai atribut data-foto-*;
   // sebelum foto tiba (atau jika tidak punya foto) yang tampil adalah huruf inisial.
@@ -470,8 +479,9 @@ Router.add("hafalan", async (root) => {
                 </div>
               </div>
               <div class="grid-2">
-                <div class="field"><label>Ayat Awal</label><input type="number" id="hf-awal" min="1" required></div>
-                <div class="field"><label>Ayat Akhir</label><input type="number" id="hf-akhir" min="1" required></div>
+                <div class="field"><label>Halaman Awal</label><input type="number" id="hf-awal" min="1" max="604" inputmode="numeric" required></div>
+                <div class="field"><label>Halaman Akhir</label><input type="number" id="hf-akhir" min="1" max="604" inputmode="numeric" required></div>
+              <div class="text-muted text-sm" style="grid-column:1/-1;margin-top:-6px;margin-bottom:8px;">Halaman mushaf (1&ndash;604). Satu halaman: isi awal dan akhir sama.</div>
               </div>
               <div class="field">
                 <label>Jenis Setoran</label>
@@ -485,8 +495,8 @@ Router.add("hafalan", async (root) => {
             <h3>Riwayat Hafalan</h3>
             ${(data.items || []).length === 0 ? `<div class="empty-state">Belum ada riwayat setoran.</div>` : `
             <div class="table-wrap"><table class="data-table">
-              <tr><th>Tanggal</th><th>Juz</th><th>Surah &amp; Ayat</th><th>Jenis</th><th>Catatan</th></tr>
-              ${(data.items || []).map(h => `<tr><td>${h.tanggal}</td><td><span class="chip chip-juz">Juz ${h.juz}</span></td><td>${h.surah} : ${h.ayat_awal}-${h.ayat_akhir}</td><td>${h.jenis_setoran}</td><td>${h.catatan || "-"}</td></tr>`).join("")}
+              <tr><th>Tanggal</th><th>Juz</th><th>Surah &amp; Halaman</th><th>Jenis</th><th>Catatan</th></tr>
+              ${(data.items || []).map(h => `<tr><td>${h.tanggal}</td><td><span class="chip chip-juz">Juz ${h.juz}</span></td><td>${esc(h.surah)} &middot; ${esc(teksHalaman(h))}</td><td>${h.jenis_setoran}</td><td>${h.catatan || "-"}</td></tr>`).join("")}
             </table></div>`}
           </div>
         `;
@@ -502,8 +512,8 @@ Router.add("hafalan", async (root) => {
                 id_santri: idSantri,
                 juz: document.getElementById("hf-juz").value,
                 surah: document.getElementById("hf-surah").value,
-                ayat_awal: document.getElementById("hf-awal").value,
-                ayat_akhir: document.getElementById("hf-akhir").value,
+                halaman_awal: document.getElementById("hf-awal").value,
+                halaman_akhir: document.getElementById("hf-akhir").value,
                 jenis_setoran: document.getElementById("hf-jenis").value,
                 catatan: document.getElementById("hf-catatan").value
               });
@@ -1336,7 +1346,7 @@ Router.add("anaksaya", async (root) => {
       <div class="card">
         <h3>Progres Hafalan Terbaru</h3>
         ${data.riwayat_hafalan.length === 0 ? `<div class="empty-state">Belum ada data hafalan.</div>` :
-          data.riwayat_hafalan.slice(0, 5).map(h => `<div class="text-sm mb-1">${h.tanggal} &mdash; Juz ${h.juz}, ${h.surah}:${h.ayat_awal}-${h.ayat_akhir} <span class="text-muted">(${h.jenis_setoran})</span></div>`).join("")}
+          data.riwayat_hafalan.slice(-5).reverse().map(h => `<div class="text-sm mb-1">${fmtTanggal(h.tanggal)} &mdash; Juz ${esc(h.juz)}, ${esc(h.surah)}, ${esc(teksHalaman(h))} <span class="text-muted">(${esc(h.jenis_setoran)})</span></div>`).join("")}
       </div>
 
       <div class="card">

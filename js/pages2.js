@@ -669,7 +669,8 @@ Router.add("raport", async (root) => {
         </div>
         <div class="flex gap-1"><button class="btn btn-primary btn-block" id="rp-tampil">Tampilkan</button><button class="btn btn-accent btn-block" id="rp-pdf">Cetak PDF</button></div>
       </div>
-      <div id="rp-hasil"></div>`;
+      <div id="rp-hasil"></div>
+      ${isWali ? "" : `<div id="leger-wrap"></div>`}`;
 
     const el = (id) => document.getElementById(id);
     function isiSantri() {
@@ -691,8 +692,9 @@ Router.add("raport", async (root) => {
       hasilEl.innerHTML = `<div class="loading">Menghitung raport...</div>`;
       try {
         const r = await Api.call("raport.get", prm);
-        const f = (n) => n === null || n === undefined ? "-" : n;
+        const f = (n) => n === null || n === undefined ? "-" : String(n).replace(".", ",");
         const sem = r.jenis === "semester";
+        const pred = r.rata_rata === null ? "-" : (r.rata_rata >= 90 ? "A" : r.rata_rata >= 80 ? "B" : r.rata_rata >= 70 ? "C" : "D");
         hasilEl.innerHTML = `<div class="card">
           <h3>${sem ? "Raport Semester" : "Raport PTS"} — ${esc(r.semester)} ${esc(r.tahun_ajaran)}</h3>
           <div class="text-sm mb-1"><b>${esc(r.santri.nama)}</b> · NIS ${esc(r.santri.nis)} · ${esc(r.santri.kelas)}</div>
@@ -701,11 +703,25 @@ Router.add("raport", async (root) => {
             <tr><th>Mata Pelajaran</th><th>Harian</th><th>PTS</th>${sem ? "<th>PAS</th>" : ""}<th>Nilai Akhir</th><th>Predikat</th></tr>
             ${r.rows.map(b => `<tr><td>${esc(b.mapel)}</td><td>${f(b.harian)}</td><td>${f(b.pts)}</td>${sem ? `<td>${f(b.pas)}</td>` : ""}<td><b>${f(b.akhir)}</b></td><td>${esc(b.predikat)}</td></tr>`).join("")}
           </table></div>
-          <div class="mt-1"><b>Rata-rata nilai akhir: ${f(r.rata_rata)}</b></div>
-          <div class="text-muted text-sm mt-1">Bobot: Harian ${r.bobot.harian}%, PTS ${r.bobot.pts}%${sem ? `, PAS ${r.bobot.pas}%` : ""}. Komponen yang belum ada tidak dihitung (bobot menyesuaikan). Predikat A ≥ 90, B ≥ 80, C ≥ 70, D &lt; 70.</div>`}
+          <div class="ringkas-raport">
+            <div class="ringkas-kotak"><h4>Ringkasan Hasil</h4><dl>
+              <dt>Jumlah Nilai Akhir</dt><dd>${f(r.jumlah)}</dd>
+              <dt>Rata-rata Nilai Akhir</dt><dd>${f(r.rata_rata)}</dd>
+              <dt>Predikat</dt><dd>${pred}</dd>
+              <dt>Peringkat di Kelas</dt><dd>${r.peringkat ? `Ke-${r.peringkat} dari ${r.jumlah_santri_kelas} santri` : "-"}</dd>
+            </dl></div>
+            <div class="ringkas-kotak"><h4>Keterangan</h4><dl>
+              <dt>Bobot penilaian</dt><dd>Harian ${r.bobot.harian}%, PTS ${r.bobot.pts}%${sem ? `, PAS ${r.bobot.pas}%` : ""}</dd>
+              <dt>Predikat</dt><dd>A ≥ 90 · B ≥ 80 · C ≥ 70 · D &lt; 70</dd>
+              <dt>Peringkat</dt><dd>Berdasarkan rata-rata nilai akhir seluruh santri sekelas</dd>
+              <dt>Tanda "-"</dt><dd>Belum ada nilai</dd>
+            </dl></div>
+          </div>`}
         </div>`;
       } catch (err) { tampilkanGalat(hasilEl, err); }
     });
+
+    if (!isWali) pasangLeger(() => ({ kelas_id: el("rp-kelas").value, jenis: el("rp-jenis").value, semester: el("rp-semester").value, tahun_ajaran: el("rp-tahun").value.trim() }));
 
     el("rp-pdf").addEventListener("click", async (e) => {
       const btn = e.target, prm = param();

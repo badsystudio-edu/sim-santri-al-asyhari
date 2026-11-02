@@ -120,7 +120,7 @@ async function renderSantriDetail(root, id) {
       <div class="card">
         <h3>Riwayat Hafalan (${data.riwayat_hafalan.length})</h3>
         ${data.riwayat_hafalan.length === 0 ? `<div class="empty-state">Belum ada data.</div>` :
-          data.riwayat_hafalan.slice(-5).reverse().map(h => `<div class="text-sm mb-1">${fmtTanggal(h.tanggal)} &mdash; Juz ${esc(h.juz)}, ${esc(h.surah)}:${esc(h.ayat_awal)}-${esc(h.ayat_akhir)}</div>`).join("")}
+          data.riwayat_hafalan.slice(-5).reverse().map(h => `<div class="text-sm mb-1">${fmtTanggal(h.tanggal)} &mdash; Juz ${esc(h.juz)}, ${esc(h.surah)}, ${esc(teksHalaman(h))}</div>`).join("")}
       </div>
       <div class="card">
         <h3>Riwayat Presensi Sekolah (${data.riwayat_presensi_sekolah.length})</h3>
@@ -216,13 +216,19 @@ function pasangQR(wadah) {
   });
 }
 
-function cetakKartuHtml(html) {
+function cetakKartuHtml(html, opsi) {
+  let gaya = null;
+  if (opsi && opsi.landscape) { // mis. leger nilai: kertas A4 mendatar
+    gaya = document.createElement("style");
+    gaya.textContent = "@page { size: A4 landscape; margin: 10mm; }";
+    (document.head || document.body).appendChild(gaya);
+  }
   let area = document.getElementById("cetak-area");
   if (!area) { area = document.createElement("div"); area.id = "cetak-area"; document.body.appendChild(area); }
   area.innerHTML = html;
   pasangQR(area);
   document.body.classList.add("mode-cetak");
-  const selesai = () => { document.body.classList.remove("mode-cetak"); area.innerHTML = ""; window.removeEventListener("afterprint", selesai); };
+  const selesai = () => { document.body.classList.remove("mode-cetak"); area.innerHTML = ""; if (gaya) gaya.remove(); window.removeEventListener("afterprint", selesai); };
   window.addEventListener("afterprint", selesai);
   setTimeout(() => window.print(), 300); // beri waktu agar kode QR selesai digambar
 }
@@ -672,4 +678,106 @@ async function renderPengaturanRaport(container) {
       catch (err) { pesan("rs-pesan-urut", false, err.message); }
     });
   }
+}
+
+
+// ======================= LEGER NILAI KELAS (unduh Excel & cetak/PDF) =======================
+
+function namaBerkas(teks) { return String(teks).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, ""); }
+function judulLeger(d) { return "LEGER NILAI " + (d.jenis === "semester" ? "SEMESTER" : "PENILAIAN TENGAH SEMESTER (PTS)"); }
+function angkaId(n) { return n === null || n === undefined || n === "" ? "-" : String(n).replace(".", ","); }
+
+function legerAoa(d) {
+  const aoa = [
+    [String(d.lembaga || "").toUpperCase()], [judulLeger(d)],
+    [`Kelas: ${d.kelas.nama}    Semester: ${d.semester}    Tahun Ajaran: ${d.tahun_ajaran}`], []
+  ];
+  aoa.push(["No", "Nama Santri", "NIS"].concat(d.mapel).concat(["Jumlah", "Rata-rata", "Peringkat"]));
+  d.baris.forEach((b, i) => {
+    const v = (x) => (x === null || x === undefined) ? "" : x;
+    aoa.push([i + 1, b.nama, b.nis].concat(d.mapel.map(m => v(b.nilai[m]))).concat([v(b.jumlah), v(b.rata_rata), v(b.peringkat)]));
+  });
+  return aoa;
+}
+
+function unduhBerkas(blob, nama) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nama;
+  a.click();
+}
+
+function unduhLegerExcel(d) {
+  const aoa = legerAoa(d);
+  const nama = `Leger_${namaBerkas(d.kelas.nama)}_${d.jenis === "semester" ? "Semester" : "PTS"}_${d.semester}_${namaBerkas(d.tahun_ajaran)}`;
+  if (typeof XLSX !== "undefined" && XLSX.utils && XLSX.writeFile) {
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{ wch: 5 }, { wch: 30 }, { wch: 12 }].concat(d.mapel.map(() => ({ wch: 14 }))).concat([{ wch: 10 }, { wch: 11 }, { wch: 11 }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Leger");
+    XLSX.writeFile(wb, nama + ".xlsx");
+  } else { // cadangan bila pustaka Excel tidak termuat: CSV yang tetap bisa dibuka di Excel
+    const q = (s) => '"' + String(s).replace(/"/g, '""') + '"';
+    const csv = "\ufeff" + aoa.map(r => r.map(q).join(",")).join("\n");
+    unduhBerkas(new Blob([csv], { type: "text/csv;charset=utf-8" }), nama + ".csv");
+  }
+}
+
+function legerHtml(d) {
+  const kepala = ["No", "Nama Santri", "NIS"].concat(d.mapel).concat(["Jumlah", "Rata-rata", "Peringkat"]);
+  return `
+    <div class="leger-kepala">
+      <div class="leger-lembaga">${esc(d.lembaga)}</div>
+      <div class="leger-judul">${judulLeger(d)}</div>
+      <div class="leger-info">Kelas <b>${esc(d.kelas.nama)}</b> &nbsp;·&nbsp; Semester <b>${esc(d.semester)}</b> &nbsp;·&nbsp; Tahun Ajaran <b>${esc(d.tahun_ajaran)}</b>${d.kelas.wali_kelas ? ` &nbsp;·&nbsp; Wali Kelas <b>${esc(d.kelas.wali_kelas)}</b>` : ""}</div>
+    </div>
+    <div class="table-wrap"><table class="leger-tabel">
+      <tr>${kepala.map(k => `<th>${esc(k)}</th>`).join("")}</tr>
+      ${d.baris.map((b, i) => `<tr><td>${i + 1}</td><td class="nama">${esc(b.nama)}</td><td>${esc(b.nis)}</td>
+        ${d.mapel.map(m => `<td>${angkaId(b.nilai[m])}</td>`).join("")}
+        <td><b>${angkaId(b.jumlah)}</b></td><td><b>${angkaId(b.rata_rata)}</b></td><td><b>${b.peringkat === null || b.peringkat === undefined ? "-" : b.peringkat}</b></td></tr>`).join("")}
+    </table></div>
+    <div class="leger-ket">Nilai = nilai akhir per mata pelajaran (bobot Harian ${d.bobot.harian}%, PTS ${d.bobot.pts}%${d.jenis === "semester" ? `, PAS ${d.bobot.pas}%` : ""}). Peringkat berdasarkan rata-rata nilai akhir; tanda "-" = belum ada nilai.</div>`;
+}
+
+function pasangLeger(ambilParam) {
+  const wadah = document.getElementById("leger-wrap");
+  if (!wadah) return;
+  wadah.innerHTML = `
+    <div class="card">
+      <h3>Leger Nilai Kelas</h3>
+      <div class="text-muted text-sm mb-1">Rekap nilai akhir seluruh santri satu kelas (kelas, jenis raport, semester, dan tahun ajaran mengikuti pilihan di atas), lengkap dengan jumlah, rata-rata, dan peringkat.</div>
+      <div class="flex gap-1" style="flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary" id="lg-lihat">Tampilkan</button>
+        <button type="button" class="btn btn-primary" id="lg-excel">⬇ Unduh Excel</button>
+        <button type="button" class="btn btn-accent" id="lg-cetak">🖨 Cetak / PDF</button>
+      </div>
+      <div id="lg-pesan" class="mt-1"></div>
+      <div id="lg-hasil" class="mt-1"></div>
+    </div>`;
+  const el = (id) => document.getElementById(id);
+  async function ambil() {
+    const prm = ambilParam();
+    if (!prm.kelas_id) throw new Error("Pilih kelas dulu.");
+    return Api.call("leger.get", prm);
+  }
+  const jalankan = async (tombol, aksi) => {
+    el("lg-pesan").innerHTML = "";
+    tombol.disabled = true;
+    try { await aksi(await ambil()); }
+    catch (err) { el("lg-pesan").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+    tombol.disabled = false;
+  };
+  el("lg-lihat").addEventListener("click", (e) => jalankan(e.target, (d) => {
+    el("lg-hasil").innerHTML = d.baris.length === 0 ? `<div class="empty-state">Belum ada santri aktif pada kelas ini.</div>` : legerHtml(d);
+  }));
+  el("lg-excel").addEventListener("click", (e) => jalankan(e.target, (d) => {
+    if (d.baris.length === 0) throw new Error("Belum ada santri aktif pada kelas ini.");
+    unduhLegerExcel(d);
+    el("lg-pesan").innerHTML = `<div class="alert alert-success">Leger ${esc(d.kelas.nama)} diunduh.</div>`;
+  }));
+  el("lg-cetak").addEventListener("click", (e) => jalankan(e.target, (d) => {
+    if (d.baris.length === 0) throw new Error("Belum ada santri aktif pada kelas ini.");
+    cetakKartuHtml(`<div class="leger-cetak">${legerHtml(d)}</div>`, { landscape: true });
+  }));
 }

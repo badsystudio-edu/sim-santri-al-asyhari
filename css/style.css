@@ -553,3 +553,26 @@ body.punya-latar .login-page { background: linear-gradient(rgba(6,78,59,0.80), r
 .urut-aksi { display: flex; gap: 6px; flex-shrink: 0; }
 .urut-aksi .btn { min-width: 38px; padding: 0 8px; }
 .kop-blok { min-width: 0; }
+
+/* ---- Ringkasan hasil & keterangan di bawah tabel raport (layar) ---- */
+.ringkas-raport { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+@media (max-width: 600px) { .ringkas-raport { grid-template-columns: 1fr; } }
+.ringkas-kotak { border: 1px solid #CFE8DB; border-radius: 12px; overflow: hidden; background: #fff; }
+.ringkas-kotak h4 { margin: 0; padding: 8px 12px; font-size: 13px; color: var(--emerald-deep); background: linear-gradient(180deg, #E6F6EE, #DDF1E6); }
+.ringkas-kotak dl { margin: 0; display: grid; grid-template-columns: 44% 1fr; }
+.ringkas-kotak dt, .ringkas-kotak dd { margin: 0; padding: 7px 12px; border-top: 1px solid #E3EEE8; font-size: 13px; }
+.ringkas-kotak dt { color: var(--text-muted); }
+.ringkas-kotak dd { font-weight: 600; overflow-wrap: anywhere; }
+
+/* ---- Leger nilai (layar & cetak) ---- */
+.leger-kepala { text-align: center; margin-bottom: 10px; }
+.leger-lembaga { font-weight: 800; font-size: 15px; color: var(--emerald-deep); }
+.leger-judul { font-weight: 800; font-size: 14px; letter-spacing: 0.4px; margin-top: 2px; }
+.leger-info { font-size: 12px; color: #334155; margin-top: 3px; }
+.leger-tabel { border-collapse: collapse; width: 100%; font-size: 12px; }
+.leger-tabel th, .leger-tabel td { border: 1px solid #94A3B8; padding: 5px 7px; text-align: center; }
+.leger-tabel th { background: #DDF1E6; color: #064E3B; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.leger-tabel td.nama { text-align: left; white-space: nowrap; }
+.leger-tabel tr:nth-child(even) td { background: #F5FAF7; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.leger-ket { font-size: 11px; color: #64748B; margin-top: 8px; }
+@media print { .leger-cetak .table-wrap { overflow: visible; } .leger-tabel { font-size: 10px; } }

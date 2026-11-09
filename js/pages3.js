@@ -371,7 +371,7 @@ Router.add("harian", async (root) => {
     const slotJam = (jamRes.items || []).filter(s => s.jenis === "jam");
     const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
     const semuaMapel = (mapelRes.items || []).map(m => m.nama_mapel);
-    const namaGrup = profil.peran === "guru_mapel" ? "kelas" : "kelompok";
+    const namaGrup = "kelas/kelompok";
     const mapelAwal = mapelSaya.indexOf(pref.mapel) !== -1 ? pref.mapel : (mapelSaya[0] || pref.mapel || "");
     const jamAwal = slotJam.some(s => s.label === pref.jam) ? pref.jam : (slotJam[0] ? slotJam[0].label : "");
 
@@ -405,7 +405,7 @@ Router.add("harian", async (root) => {
       const g = st.grup[gi];
       return `
         <div class="flex-between">
-          <label class="hr-ikut"><input type="checkbox" data-aksi="ikut" data-g="${gi}" ${g.ikut ? "checked" : ""}> <b>${esc(g.nama)}</b> <span class="text-muted text-sm">(${g.santri.length} santri)</span></label>
+          <label class="hr-ikut"><input type="checkbox" data-aksi="ikut" data-g="${gi}" ${g.ikut ? "checked" : ""}> <b>${esc(g.nama)}</b>${g.nama_lembaga ? ` <span class="chip chip-juz">${esc(g.nama_lembaga)}</span>` : ""} <span class="text-muted text-sm">(${g.santri.length} santri)</span></label>
           <div class="flex gap-1"><button type="button" class="btn btn-secondary btn-sm" data-aksi="semua" data-g="${gi}">Semua Hadir</button><button type="button" class="btn btn-secondary btn-sm" data-aksi="lipat" data-g="${gi}">${g.lipat ? "Buka" : "Tutup"}</button></div>
         </div>
         <div class="text-sm text-muted mt-1">${ringkas(g)}${g.sudah_disimpan ? " · <b>sudah ada data tanggal ini (akan diperbarui)</b>" : ""}</div>
@@ -425,7 +425,7 @@ Router.add("harian", async (root) => {
       el("hr-simpan").disabled = true;
       try {
         const d = await Api.call("harian.muat", { tanggal });
-        st.grup = d.grup.map(g => ({ ref_id: g.ref_id, nama: g.nama, santri: g.santri, sudah_disimpan: g.sudah_disimpan, ikut: true, lipat: false }));
+        st.grup = d.grup.map(g => ({ ref_id: g.ref_id, nama: g.nama, nama_lembaga: g.nama_lembaga || "", jenis: g.jenis, santri: g.santri, sudah_disimpan: g.sudah_disimpan, ikut: true, lipat: false }));
         st.libur = !!(d.libur && d.libur.diblokir);
         el("hr-libur").innerHTML = pesanLiburHtml({ diblokir: st.libur, alasan: d.libur ? d.libur.alasan : "", admin_dikecualikan: false });
         if (d.jurnal && d.jurnal.length) {
@@ -681,21 +681,28 @@ async function renderPengaturanRaport(container) {
 }
 
 
-// ======================= LEGER NILAI KELAS (unduh Excel & cetak/PDF) =======================
+// ======================= LEGER NILAI KELAS / KELOMPOK (unduh Excel & cetak/PDF) =======================
 
 function namaBerkas(teks) { return String(teks).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, ""); }
-function judulLeger(d) { return "LEGER NILAI " + (d.jenis === "semester" ? "SEMESTER" : "PENILAIAN TENGAH SEMESTER (PTS)"); }
+function judulLeger(d) { return "LEGER NILAI " + (d.jenis === "semester" ? "SEMESTER" : "PENILAIAN TENGAH SEMESTER (PTS)") + (d.nama_lembaga ? " — " + d.nama_lembaga : ""); }
 function angkaId(n) { return n === null || n === undefined || n === "" ? "-" : String(n).replace(".", ","); }
+function kolomPeringkatLeger(d) {
+  const k = [];
+  if (!d.tampil || d.tampil.kelas) k.push({ judul: "Peringkat " + d.grup_label, ambil: (b) => b.peringkat });
+  if (d.tampil && d.tampil.paralel) k.push({ judul: "Peringkat Paralel", ambil: (b) => b.peringkat_paralel });
+  return k;
+}
 
 function legerAoa(d) {
+  const kp = kolomPeringkatLeger(d);
   const aoa = [
     [String(d.lembaga || "").toUpperCase()], [judulLeger(d)],
-    [`Kelas: ${d.kelas.nama}    Semester: ${d.semester}    Tahun Ajaran: ${d.tahun_ajaran}`], []
+    [`${d.grup_label || "Kelas"}: ${d.kelas.nama}    Semester: ${d.semester}    Tahun Ajaran: ${d.tahun_ajaran}`], []
   ];
-  aoa.push(["No", "Nama Santri", "NIS"].concat(d.mapel).concat(["Jumlah", "Rata-rata", "Peringkat"]));
+  aoa.push(["No", "Nama Santri", "NIS"].concat(d.mapel).concat(["Jumlah", "Rata-rata"]).concat(kp.map(k => k.judul)));
   d.baris.forEach((b, i) => {
     const v = (x) => (x === null || x === undefined) ? "" : x;
-    aoa.push([i + 1, b.nama, b.nis].concat(d.mapel.map(m => v(b.nilai[m]))).concat([v(b.jumlah), v(b.rata_rata), v(b.peringkat)]));
+    aoa.push([i + 1, b.nama, b.nis].concat(d.mapel.map(m => v(b.nilai[m]))).concat([v(b.jumlah), v(b.rata_rata)]).concat(kp.map(k => v(k.ambil(b)))));
   });
   return aoa;
 }
@@ -709,10 +716,11 @@ function unduhBerkas(blob, nama) {
 
 function unduhLegerExcel(d) {
   const aoa = legerAoa(d);
+  const kp = kolomPeringkatLeger(d);
   const nama = `Leger_${namaBerkas(d.kelas.nama)}_${d.jenis === "semester" ? "Semester" : "PTS"}_${d.semester}_${namaBerkas(d.tahun_ajaran)}`;
   if (typeof XLSX !== "undefined" && XLSX.utils && XLSX.writeFile) {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 5 }, { wch: 30 }, { wch: 12 }].concat(d.mapel.map(() => ({ wch: 14 }))).concat([{ wch: 10 }, { wch: 11 }, { wch: 11 }]);
+    ws["!cols"] = [{ wch: 5 }, { wch: 30 }, { wch: 12 }].concat(d.mapel.map(() => ({ wch: 14 }))).concat([{ wch: 10 }, { wch: 11 }]).concat(kp.map(() => ({ wch: 16 })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Leger");
     XLSX.writeFile(wb, nama + ".xlsx");
@@ -724,20 +732,22 @@ function unduhLegerExcel(d) {
 }
 
 function legerHtml(d) {
-  const kepala = ["No", "Nama Santri", "NIS"].concat(d.mapel).concat(["Jumlah", "Rata-rata", "Peringkat"]);
+  const kp = kolomPeringkatLeger(d);
+  const kepala = ["No", "Nama Santri", "NIS"].concat(d.mapel).concat(["Jumlah", "Rata-rata"]).concat(kp.map(k => k.judul));
   return `
     <div class="leger-kepala">
       <div class="leger-lembaga">${esc(d.lembaga)}</div>
-      <div class="leger-judul">${judulLeger(d)}</div>
-      <div class="leger-info">Kelas <b>${esc(d.kelas.nama)}</b> &nbsp;·&nbsp; Semester <b>${esc(d.semester)}</b> &nbsp;·&nbsp; Tahun Ajaran <b>${esc(d.tahun_ajaran)}</b>${d.kelas.wali_kelas ? ` &nbsp;·&nbsp; Wali Kelas <b>${esc(d.kelas.wali_kelas)}</b>` : ""}</div>
+      <div class="leger-judul">${esc(judulLeger(d))}</div>
+      <div class="leger-info">${esc(d.grup_label || "Kelas")} <b>${esc(d.kelas.nama)}</b> &nbsp;·&nbsp; Semester <b>${esc(d.semester)}</b> &nbsp;·&nbsp; Tahun Ajaran <b>${esc(d.tahun_ajaran)}</b>${d.kelas.wali_kelas ? ` &nbsp;·&nbsp; ${d.grup_label === "Kelompok" ? "Pengajar" : "Wali Kelas"} <b>${esc(d.kelas.wali_kelas)}</b>` : ""}</div>
     </div>
     <div class="table-wrap"><table class="leger-tabel">
       <tr>${kepala.map(k => `<th>${esc(k)}</th>`).join("")}</tr>
       ${d.baris.map((b, i) => `<tr><td>${i + 1}</td><td class="nama">${esc(b.nama)}</td><td>${esc(b.nis)}</td>
         ${d.mapel.map(m => `<td>${angkaId(b.nilai[m])}</td>`).join("")}
-        <td><b>${angkaId(b.jumlah)}</b></td><td><b>${angkaId(b.rata_rata)}</b></td><td><b>${b.peringkat === null || b.peringkat === undefined ? "-" : b.peringkat}</b></td></tr>`).join("")}
+        <td><b>${angkaId(b.jumlah)}</b></td><td><b>${angkaId(b.rata_rata)}</b></td>
+        ${kp.map(k => `<td><b>${angkaId(k.ambil(b))}</b></td>`).join("")}</tr>`).join("")}
     </table></div>
-    <div class="leger-ket">Nilai = nilai akhir per mata pelajaran (bobot Harian ${d.bobot.harian}%, PTS ${d.bobot.pts}%${d.jenis === "semester" ? `, PAS ${d.bobot.pas}%` : ""}). Peringkat berdasarkan rata-rata nilai akhir; tanda "-" = belum ada nilai.</div>`;
+    <div class="leger-ket">Nilai = nilai akhir per mata pelajaran (bobot Harian ${d.bobot.harian}%, PTS ${d.bobot.pts}%${d.jenis === "semester" ? `, PAS ${d.bobot.pas}%` : ""}). Peringkat berdasarkan rata-rata nilai akhir${d.tampil && d.tampil.paralel ? "; peringkat paralel membandingkan seluruh " + (d.grup_label === "Kelompok" ? "kelompok" : "kelas") + " pada tingkat " + esc(d.kelas.tingkat) : ""}; tanda "-" = belum ada nilai.</div>`;
 }
 
 function pasangLeger(ambilParam) {
@@ -745,8 +755,8 @@ function pasangLeger(ambilParam) {
   if (!wadah) return;
   wadah.innerHTML = `
     <div class="card">
-      <h3>Leger Nilai Kelas</h3>
-      <div class="text-muted text-sm mb-1">Rekap nilai akhir seluruh santri satu kelas (kelas, jenis raport, semester, dan tahun ajaran mengikuti pilihan di atas), lengkap dengan jumlah, rata-rata, dan peringkat.</div>
+      <h3>Leger Nilai</h3>
+      <div class="text-muted text-sm mb-1">Rekap nilai akhir seluruh santri satu kelas/kelompok (jenis raport, kelas/kelompok, semester, dan tahun ajaran mengikuti pilihan di atas), lengkap dengan jumlah, rata-rata, dan peringkat (kelas dan paralel sesuai opsi jenis raport). Tidak tersedia untuk raport halaqah.</div>
       <div class="flex gap-1" style="flex-wrap:wrap;">
         <button type="button" class="btn btn-secondary" id="lg-lihat">Tampilkan</button>
         <button type="button" class="btn btn-primary" id="lg-excel">⬇ Unduh Excel</button>
@@ -758,7 +768,7 @@ function pasangLeger(ambilParam) {
   const el = (id) => document.getElementById(id);
   async function ambil() {
     const prm = ambilParam();
-    if (!prm.kelas_id) throw new Error("Pilih kelas dulu.");
+    if (!prm.kelas_id && !prm.kelompok_id) throw new Error("Pilih kelas/kelompok dulu.");
     return Api.call("leger.get", prm);
   }
   const jalankan = async (tombol, aksi) => {
@@ -769,15 +779,162 @@ function pasangLeger(ambilParam) {
     tombol.disabled = false;
   };
   el("lg-lihat").addEventListener("click", (e) => jalankan(e.target, (d) => {
-    el("lg-hasil").innerHTML = d.baris.length === 0 ? `<div class="empty-state">Belum ada santri aktif pada kelas ini.</div>` : legerHtml(d);
+    el("lg-hasil").innerHTML = d.baris.length === 0 ? `<div class="empty-state">Belum ada santri aktif.</div>` : legerHtml(d);
   }));
   el("lg-excel").addEventListener("click", (e) => jalankan(e.target, (d) => {
-    if (d.baris.length === 0) throw new Error("Belum ada santri aktif pada kelas ini.");
+    if (d.baris.length === 0) throw new Error("Belum ada santri aktif.");
     unduhLegerExcel(d);
     el("lg-pesan").innerHTML = `<div class="alert alert-success">Leger ${esc(d.kelas.nama)} diunduh.</div>`;
   }));
   el("lg-cetak").addEventListener("click", (e) => jalankan(e.target, (d) => {
-    if (d.baris.length === 0) throw new Error("Belum ada santri aktif pada kelas ini.");
+    if (d.baris.length === 0) throw new Error("Belum ada santri aktif.");
     cetakKartuHtml(`<div class="leger-cetak">${legerHtml(d)}</div>`, { landscape: true });
   }));
+}
+
+// ======================= PEMBANTU LEMBAGA =======================
+// Data lama (tanpa lembaga) dianggap milik lembaga pertama yang sesuai jenisnya (kelas->sekolah, kelompok->tpq).
+
+function lembagaDefaultFE(daftar, jenis) {
+  const l = (daftar || []).filter(x => x.jenis === jenis && x.status !== "nonaktif")[0];
+  return l ? String(l.id) : "";
+}
+function lembagaGrup(daftar, item, tipe) {
+  return String(item && item.id_lembaga ? item.id_lembaga : lembagaDefaultFE(daftar, tipe === "kelompok" ? "tpq" : "sekolah"));
+}
+
+// ======================= JENIS RAPORT: format, teks, peringkat, template Google Docs =======================
+
+const SUMBER_LABEL = { pts: "Nilai — PTS (harian + PTS)", semester: "Nilai — Semester (harian + PTS + PAS)", hafalan: "Hafalan — Raport Halaqah/Tahfidz" };
+
+async function renderJenisRaport(container) {
+  if (!Auth.boleh("admin")) { container.innerHTML = ""; return; }
+  container.innerHTML = `<div class="card"><div class="loading">Memuat jenis raport...</div></div>`;
+  let jenis, lembaga;
+  try {
+    RefCache.invalidate("jenis_raport");
+    const [jr, lem] = await Promise.all([Api.call("jenisraport.list", {}), Ref.lembaga()]);
+    jenis = jr.items || []; lembaga = lem.items || [];
+  } catch (err) { tampilkanGalat(container, err); return; }
+  window.__jenisRaport = jenis;
+  container.innerHTML = `
+    <div class="card">
+      <h3>Jenis Raport &amp; Format</h3>
+      <div class="text-muted text-sm mb-1">Setiap jenis raport (mis. PTS SMP, Semester TPQ, Halaqah) punya format, tulisan jabatan, penandatangan, dan opsi peringkatnya sendiri. Format dapat memakai tata letak bawaan aplikasi, atau <b>template Google Docs</b> yang Anda desain bebas seperti di Word &mdash; data tetap terisi otomatis lewat penanda <code>{{NAMA_SANTRI}}</code> dan sejenisnya.</div>
+      ${jenis.map(j => `
+        <div class="jr-baris">
+          <div style="min-width:0;flex:1;">
+            <div style="font-weight:700;">${esc(j.nama)} ${j.status === "nonaktif" ? `<span class="chip chip-nonaktif">Nonaktif</span>` : ""}</div>
+            <div class="text-muted text-sm">${esc(j.nama_lembaga)} · ${esc(SUMBER_LABEL[j.sumber] || j.sumber)}</div>
+            <div class="mt-1">
+              <span class="chip ${j.engine === "docs" ? "chip-juz" : "chip-nonaktif"}">${j.engine === "docs" ? "Template Google Docs" : "Format bawaan"}</span>
+              ${j.peringkat_kelas !== "tidak" ? `<span class="chip chip-hadir">Peringkat ${j.jenis_lembaga === "tpq" ? "kelompok" : "kelas"}</span>` : ""}
+              ${j.peringkat_paralel !== "tidak" ? `<span class="chip chip-hadir">Peringkat paralel</span>` : ""}
+            </div>
+          </div>
+          <div class="flex gap-1" style="flex-shrink:0;"><button class="btn btn-secondary btn-sm" data-ubah="${esc(j.id)}">Ubah</button><button class="btn btn-danger btn-sm" data-hapus="${esc(j.id)}">Hapus</button></div>
+        </div>`).join("") || `<div class="empty-state">Belum ada jenis raport.</div>`}
+      <button class="btn btn-primary btn-block mt-2" id="jr-tambah">+ Tambah Jenis Raport</button>
+    </div>`;
+  container.querySelectorAll("[data-ubah]").forEach(b => b.addEventListener("click", () => bukaEditorJenisRaport(jenis.find(j => j.id === b.dataset.ubah), lembaga, container)));
+  container.querySelectorAll("[data-hapus]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Hapus jenis raport ini? Data nilai/hafalan tidak ikut terhapus.")) return;
+    try { await Api.call("jenisraport.hapus", { id: b.dataset.hapus }); renderJenisRaport(container); } catch (err) { alert(err.message); }
+  }));
+  document.getElementById("jr-tambah").addEventListener("click", () => bukaEditorJenisRaport(null, lembaga, container));
+}
+
+function bukaEditorJenisRaport(jr, lembaga, container) {
+  const baru = !jr;
+  const d = jr || { nama: "", id_lembaga: (lembaga[0] || {}).id, sumber: "semester", judul: "", engine: "bawaan", template_url: "", peringkat_kelas: "ya", peringkat_paralel: "ya",
+    jabatan_pengasuh: "", jabatan_kepsek: "", jabatan_wali: "", nama_pengasuh: "", nama_kepsek: "", nip_kepsek: "", status: "aktif" };
+  const v = (k) => esc(d[k] || "");
+  const teks = (id, label, nilai, ket) => `<div class="field"><label>${label}</label><input type="text" id="${id}" value="${nilai}" maxlength="160" placeholder="${esc(ket || "")}"></div>`;
+  const m = bukaModal(`<span>🧾</span> ${baru ? "Tambah" : "Ubah"} Jenis Raport`, `
+    <form id="jr-form" onsubmit="return false;">
+      ${teks("jr-nama", "Nama jenis raport", v("nama"), "mis. Raport PTS SMP")}
+      <div class="grid-2">
+        <div class="field"><label>Lembaga</label><select id="jr-lembaga">${lembaga.filter(l => l.status !== "nonaktif").map(l => `<option value="${esc(l.id)}" ${String(d.id_lembaga) === String(l.id) ? "selected" : ""}>${esc(l.nama)}</option>`).join("")}</select></div>
+        <div class="field"><label>Isi raport (sumber data)</label><select id="jr-sumber">${Object.keys(SUMBER_LABEL).map(k => `<option value="${k}" ${d.sumber === k ? "selected" : ""}>${esc(SUMBER_LABEL[k])}</option>`).join("")}</select></div>
+      </div>
+      ${teks("jr-judul", "Judul di raport", v("judul"), "kosongkan = judul bawaan")}
+      <h4 class="jr-sub">Tulisan jabatan di tanda tangan (kiri → kanan)</h4>
+      ${teks("jr-jab-pengasuh", "1. Jabatan pertama", v("jabatan_pengasuh"), "Pengasuh Pondok Pesantren")}
+      ${teks("jr-jab-kepsek", "2. Jabatan kedua", v("jabatan_kepsek"), "Kepala Sekolah / Kepala TPQ")}
+      ${teks("jr-jab-wali", "3. Jabatan ketiga", v("jabatan_wali"), "Wali Murid")}
+      <h4 class="jr-sub">Nama penandatangan khusus raport ini</h4>
+      <div class="text-muted text-sm mb-1">Kosongkan untuk memakai nama umum di bagian "Penandatangan" di bawah. Nama Wali Murid selalu otomatis dari data wali santri.</div>
+      ${teks("jr-nama-pengasuh", "Nama Pengasuh", v("nama_pengasuh"), "")}
+      <div class="grid-2">${teks("jr-nama-kepsek", "Nama Kepala", v("nama_kepsek"), "")}${teks("jr-nip-kepsek", "NIP/NIY Kepala", v("nip_kepsek"), "")}</div>
+      <h4 class="jr-sub">Peringkat yang ditampilkan</h4>
+      <label class="jr-cek"><input type="checkbox" id="jr-p-kelas" ${d.peringkat_kelas !== "tidak" ? "checked" : ""}> Peringkat kelas / kelompok</label>
+      <label class="jr-cek"><input type="checkbox" id="jr-p-paralel" ${d.peringkat_paralel !== "tidak" ? "checked" : ""}> Peringkat paralel (antar kelas pada tingkat yang sama &mdash; isi "Tingkat" di Data Master)</label>
+      <h4 class="jr-sub">Format tampilan raport</h4>
+      <div class="field"><select id="jr-engine"><option value="bawaan" ${d.engine !== "docs" ? "selected" : ""}>Format bawaan aplikasi</option><option value="docs" ${d.engine === "docs" ? "selected" : ""}>Template Google Docs (bisa diedit seperti Word)</option></select></div>
+      <div id="jr-docs-wrap">
+        <div class="field"><label>Tautan template Google Docs</label><input type="text" id="jr-url" value="${v("template_url")}" placeholder="https://docs.google.com/document/d/…"></div>
+        <div class="flex gap-1" style="flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" id="jr-buat" ${baru ? "disabled" : ""}>Buat template dari format bawaan</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="jr-buka">Buka di Google Docs</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="jr-pindai">Periksa penanda</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="jr-katalog">Daftar penanda</button>
+        </div>
+        ${baru ? `<div class="text-muted text-sm mt-1">Simpan dulu jenis raport ini, lalu buka lagi untuk membuat template dari format bawaan.</div>` : ""}
+        <div class="text-muted text-sm mt-1">Cara: <b>1)</b> buat template → <b>2)</b> edit tampilan di Google Docs (huruf, tabel, logo, margin) tanpa mengubah tulisan di dalam <code>{{ }}</code> → <b>3)</b> kembali ke sini, pilih "Template Google Docs", <b>Periksa penanda</b>, lalu Simpan. Bila template bermasalah, raport otomatis memakai format bawaan.</div>
+        <div id="jr-info" class="mt-1"></div>
+      </div>
+      <div class="field mt-1"><label>Status</label><select id="jr-status"><option value="aktif" ${d.status !== "nonaktif" ? "selected" : ""}>Aktif (dapat dipakai)</option><option value="nonaktif" ${d.status === "nonaktif" ? "selected" : ""}>Nonaktif (disembunyikan)</option></select></div>
+      <div id="jr-pesan"></div>
+    </form>`,
+    `<button type="button" class="btn btn-secondary" data-tutup="1">Batal</button><button type="button" class="btn btn-primary" id="jr-simpan">Simpan</button>`);
+  const el = (id) => m.overlay.querySelector("#" + id);
+  const pesan = (ok, t) => { el("jr-pesan").innerHTML = `<div class="alert ${ok ? "alert-success" : "alert-error"}">${esc(t)}</div>`; };
+  const info = (html) => { el("jr-info").innerHTML = html; };
+  const atur = () => { el("jr-docs-wrap").style.display = el("jr-engine").value === "docs" ? "block" : "none"; };
+  el("jr-engine").addEventListener("change", atur); atur();
+
+  el("jr-buka").addEventListener("click", () => {
+    const u = el("jr-url").value.trim();
+    if (!u) { info(`<div class="alert alert-error">Belum ada tautan template.</div>`); return; }
+    window.open(u, "_blank", "noopener");
+  });
+  const buat = el("jr-buat");
+  if (buat) buat.addEventListener("click", async () => {
+    buat.disabled = true; info(`<div class="loading">Membuat template di Google Docs...</div>`);
+    try {
+      const h = await Api.call("jenisraport.buatTemplate", { id: jr.id });
+      el("jr-url").value = h.url; el("jr-engine").value = "docs"; atur();
+      info(`<div class="alert alert-success">Template dibuat. <a href="${esc(h.url)}" target="_blank" rel="noopener"><b>Buka &amp; edit di Google Docs</b></a>. Setelah selesai mengedit, klik Simpan.</div>`);
+    } catch (err) { info(`<div class="alert alert-error">${esc(err.message)}</div>`); }
+    buat.disabled = false;
+  });
+  el("jr-pindai").addEventListener("click", async () => {
+    info(`<div class="loading">Memeriksa dokumen...</div>`);
+    try {
+      const h = await Api.call("jenisraport.pindai", { template_url: el("jr-url").value.trim(), sumber: el("jr-sumber").value });
+      info(`<div class="alert ${h.tidak_dikenal.length ? "alert-error" : "alert-success"}">
+        <b>${esc(h.judul)}</b><br>${h.ditemukan.length} penanda dikenali${h.tidak_dikenal.length ? `, <b>${h.tidak_dikenal.length} tidak dikenal</b> (akan dikosongkan): ${h.tidak_dikenal.map(x => `<code>${esc(x)}</code>`).join(" ")}` : " — semua penanda valid"}.
+        ${h.blok_hilang.length ? `<br>Perhatian: tabel data belum memakai blok ${h.blok_hilang.map(x => `<code>{{#${esc(x)}}}</code>`).join(", ")}.` : ""}</div>`);
+    } catch (err) { info(`<div class="alert alert-error">${esc(err.message)}</div>`); }
+  });
+  el("jr-katalog").addEventListener("click", async () => {
+    try {
+      const k = await Api.call("jenisraport.katalog", { sumber: el("jr-sumber").value });
+      const blok = Object.keys(k.blok).map(b => `<div class="mt-1"><b>Tabel berulang</b> (letakkan <code>{{#${b}}}</code> di awal baris templat): ${k.blok[b].map(c => `<code>{{${b}.${c}}}</code>`).join(" ")}</div>`).join("");
+      info(`<div class="katalog-penanda"><b>Penanda tunggal</b> (ketik persis di Google Docs): ${k.skalar.map(x => `<code>{{${x}}}</code>`).join(" ")}${blok}
+        <div class="mt-1 text-muted text-sm">Pengubah: <code>{{NAMA_SANTRI | kapital}}</code> <code>| kecil</code> <code>| judul</code> <code>| bawaan:-</code> <code>| tanggal</code> <code>| ribuan</code>. Baris tabel/paragraf yang memuat penanda peringkat otomatis dihapus bila opsinya dimatikan. <code>{{?KUNCI}}</code> di awal baris/paragraf menyembunyikannya bila nilainya kosong. Gambar: <code>{{KOP}}</code> <code>{{KOP_SEKOLAH}}</code> <code>{{KOP_YAYASAN}}</code> <code>{{FOTO_SANTRI}}</code>.</div></div>`);
+    } catch (err) { info(`<div class="alert alert-error">${esc(err.message)}</div>`); }
+  });
+  el("jr-simpan").addEventListener("click", async (e) => {
+    const data = {
+      id: jr ? jr.id : undefined, nama: el("jr-nama").value, id_lembaga: el("jr-lembaga").value, sumber: el("jr-sumber").value, judul: el("jr-judul").value,
+      jabatan_pengasuh: el("jr-jab-pengasuh").value, jabatan_kepsek: el("jr-jab-kepsek").value, jabatan_wali: el("jr-jab-wali").value,
+      nama_pengasuh: el("jr-nama-pengasuh").value, nama_kepsek: el("jr-nama-kepsek").value, nip_kepsek: el("jr-nip-kepsek").value,
+      peringkat_kelas: el("jr-p-kelas").checked ? "ya" : "tidak", peringkat_paralel: el("jr-p-paralel").checked ? "ya" : "tidak",
+      engine: el("jr-engine").value, template_url: el("jr-url").value.trim(), status: el("jr-status").value
+    };
+    e.target.disabled = true;
+    try { await Api.call("jenisraport.simpan", { data }); RefCache.invalidate("jenis_raport"); m.tutup(); renderJenisRaport(container); }
+    catch (err) { pesan(false, err.message); e.target.disabled = false; }
+  });
 }

@@ -513,29 +513,36 @@ Router.add("nilai", async (root) => {
   root.innerHTML = Shell("nilai", `<div class="loading">Memuat...</div>`);
   const main = document.querySelector("main.content");
   const profil = Auth.getProfil();
-  const bisaInput = profil.peran === "admin" || profil.peran === "guru_mapel";
+  const bisaInput = profil.peran === "admin" || profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq";
+  const guru = profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq";
   try {
-    const [kelasRes, mapelRes, ujianRes, santriRes, peng] = await Promise.all([Ref.kelas(), Ref.mapel(), Ref.jenisUjian(), Ref.santriSemua(), Ref.pengaturan()]);
-    let daftarKelas = kelasRes.items || [];
-    if (profil.peran === "guru_mapel") {
-      const d = (profil.kelas_diampu || "").split(",");
-      daftarKelas = daftarKelas.filter(k => d.indexOf(k.id) !== -1);
-    }
-    const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
-    const daftarMapel = (profil.peran === "guru_mapel" && mapelSaya.length) ? mapelSaya : (mapelRes.items || []).map(m => m.nama_mapel);
+    const [kelasRes, kelompokRes, lembagaRes, mapelRes, ujianRes, santriRes, peng] = await Promise.all([Ref.kelas(), Ref.kelompok(), Ref.lembaga(), Ref.mapel(), Ref.jenisUjian(), Ref.santriSemua(), Ref.pengaturan()]);
+    const lembaga = lembagaRes.items || [];
+    const csv = (s) => String(s || "").split(",").map(x => x.trim()).filter(Boolean);
+    // Semua kelas (lembaga sekolah) dan kelompok (lembaga TPQ) yang boleh dipilih akun ini.
+    const grupList = [];
+    (kelasRes.items || []).forEach(k => { if (!guru || csv(profil.kelas_diampu).indexOf(k.id) !== -1) grupList.push({ tipe: "kelas", id: k.id, nama: k.nama_kelas, lembaga: lembagaGrup(lembaga, k, "kelas") }); });
+    (kelompokRes.items || []).forEach(k => { if (!guru || csv(profil.kelompok_diampu).indexOf(k.id) !== -1) grupList.push({ tipe: "kelompok", id: k.id, nama: k.nama_kelompok, lembaga: lembagaGrup(lembaga, k, "kelompok") }); });
+    const mapelSaya = csv(profil.mapel);
+    const mapelMaster = (mapelRes.items || []).filter(m => m.status !== "nonaktif");
     const jenisUjian = (ujianRes.items || []).filter(u => u.status !== "nonaktif");
     const santriAktif = (santriRes.items || []).filter(s => s.status === "aktif");
+    const namaLembaga = (id) => { const l = lembaga.find(x => String(x.id) === String(id)); return l ? l.nama : "Lainnya"; };
+    const optGrup = () => {
+      const peta = {};
+      grupList.forEach(g => { (peta[g.lembaga] = peta[g.lembaga] || []).push(g); });
+      const kunci = Object.keys(peta);
+      if (kunci.length === 0) return `<option value="">(belum ada kelas/kelompok)</option>`;
+      return kunci.map(l => `<optgroup label="${esc(namaLembaga(l))}">${peta[l].map(g => `<option value="${g.tipe}:${esc(g.id)}">${esc(g.nama)}${g.tipe === "kelompok" ? " (kelompok)" : ""}</option>`).join("")}</optgroup>`).join("");
+    };
 
     main.innerHTML = `
       <div class="card">
         <h3>${bisaInput ? "Input Nilai" : "Pantauan Nilai"}</h3>
-        <div class="text-muted text-sm mb-1">Tahun ajaran <b>${esc(peng.tahun_ajaran)}</b> · Semester aktif <b>${esc(peng.semester_aktif)}</b>. Jenis ujian &amp; bobot diatur admin di menu Pengaturan Akademik / Data Master.</div>
+        <div class="text-muted text-sm mb-1">Tahun ajaran <b>${esc(peng.tahun_ajaran)}</b> · Semester aktif <b>${esc(peng.semester_aktif)}</b>. Mata pelajaran yang tampil menyesuaikan lembaga kelas/kelompok yang dipilih.</div>
         <div class="grid-2">
-          <div class="field"><label>Kelas</label><select id="nl-kelas">${daftarKelas.length === 0 ? `<option value="">(belum ada kelas)</option>` : daftarKelas.map(k => `<option value="${esc(k.id)}">${esc(k.nama_kelas)}</option>`).join("")}</select></div>
-          <div class="field"><label>Mata Pelajaran</label>
-            ${daftarMapel.length === 0 ? `<input type="text" id="nl-mapel" placeholder="Ketik mata pelajaran">`
-              : `<select id="nl-mapel">${bisaInput ? "" : `<option value="">(semua mapel)</option>`}${daftarMapel.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("")}</select>`}
-          </div>
+          <div class="field"><label>Kelas / Kelompok</label><select id="nl-kelas">${optGrup()}</select></div>
+          <div class="field"><label>Mata Pelajaran</label><select id="nl-mapel"></select></div>
         </div>
         ${bisaInput ? `
         <div class="grid-2">
@@ -550,12 +557,26 @@ Router.add("nilai", async (root) => {
 
     let barisNilai = [];
     const el = (id) => document.getElementById(id);
+    const grupTerpilih = () => {
+      const [tipe, id] = String(el("nl-kelas").value || "").split(":");
+      return { tipe, id: id || "", g: grupList.find(x => x.tipe === tipe && x.id === id) };
+    };
+    // Isi pilihan mapel sesuai lembaga grup yang dipilih (+ mapel yang diampu bila akun guru).
+    function isiMapel() {
+      const { g } = grupTerpilih();
+      let nama = mapelMaster.filter(m => !m.id_lembaga || (g && String(m.id_lembaga) === String(g.lembaga))).map(m => m.nama_mapel);
+      if (guru && mapelSaya.length) nama = nama.filter(n => mapelSaya.indexOf(n) !== -1);
+      el("nl-mapel").innerHTML = (bisaInput ? "" : `<option value="">(semua mapel)</option>`) + (nama.length === 0 && bisaInput
+        ? `<option value="">(belum ada mapel untuk lembaga ini)</option>` : nama.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join(""));
+    }
     const pilihan = () => {
       const jenisVal = bisaInput ? el("nl-jenis").value : "harian";
       const [jenis, idUjian] = jenisVal.split("|");
-      return { kelasId: el("nl-kelas").value, mapel: el("nl-mapel").value.trim(), jenis, idUjian,
+      const gt = grupTerpilih();
+      return { tipe: gt.tipe, grupId: gt.id, mapel: el("nl-mapel").value.trim(), jenis, idUjian,
         namaPenilaian: bisaInput ? el("nl-nama").value.trim() : "", tanggal: bisaInput ? el("nl-tanggal").value : "" };
     };
+    const kunciGrup = (p) => p.tipe === "kelompok" ? { kelompok_id: p.grupId } : { kelas_id: p.grupId };
     const semesterTerpilih = () => {
       const p = pilihan();
       if (p.jenis === "ujian") { const u = jenisUjian.find(x => x.id === p.idUjian); if (u) return u.semester; }
@@ -564,9 +585,9 @@ Router.add("nilai", async (root) => {
 
     async function muatData() {
       const p = pilihan();
-      if (!p.kelasId) { barisNilai = []; gambarRiwayat(); return; }
+      if (!p.grupId) { barisNilai = []; gambarRiwayat(); return; }
       try {
-        const d = await Api.call("nilai.list", { kelas_id: p.kelasId, mapel: p.mapel || undefined, semester: semesterTerpilih() });
+        const d = await Api.call("nilai.list", Object.assign(kunciGrup(p), { mapel: p.mapel || undefined, semester: semesterTerpilih() }));
         barisNilai = d.items || [];
       } catch (err) { el("nl-riwayat").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; return; }
       gambarRiwayat();
@@ -598,18 +619,19 @@ Router.add("nilai", async (root) => {
       const p = pilihan();
       const wadah = el("nl-daftar");
       wadah.dataset.aktif = "1";
-      if (!p.kelasId || !p.mapel) { wadah.innerHTML = `<div class="alert alert-error">Pilih kelas dan mata pelajaran dulu.</div>`; return; }
+      if (!p.grupId || !p.mapel) { wadah.innerHTML = `<div class="alert alert-error">Pilih kelas/kelompok dan mata pelajaran dulu.</div>`; return; }
       if (p.jenis === "harian" && !p.namaPenilaian) { wadah.innerHTML = `<div class="alert alert-error">Isi nama penilaian (mis. Ulangan Bab 2).</div>`; return; }
       const nama = p.jenis === "ujian" ? (jenisUjian.find(u => u.id === p.idUjian) || {}).nama : p.namaPenilaian;
       const ada = {};
       barisNilai.forEach(r => {
         if (r.mapel === p.mapel && r.jenis === p.jenis && r.nama_penilaian === nama && (p.jenis === "ujian" || r.tanggal === p.tanggal)) ada[String(r.id_santri)] = r.nilai;
       });
-      const roster = santriAktif.filter(s => String(s.id_kelas) === String(p.kelasId)).sort((a, b) => String(a.nama).localeCompare(String(b.nama)));
-      wadah.innerHTML = roster.length === 0 ? `<div class="empty-state">Belum ada santri pada kelas ini.</div>` : `
+      const bidang = p.tipe === "kelompok" ? "id_kelompok" : "id_kelas";
+      const roster = santriAktif.filter(s => String(s[bidang]) === String(p.grupId)).sort((a, b) => String(a.nama).localeCompare(String(b.nama)));
+      wadah.innerHTML = roster.length === 0 ? `<div class="empty-state">Belum ada santri pada ${p.tipe === "kelompok" ? "kelompok" : "kelas"} ini.</div>` : `
         <div class="text-muted text-sm mb-1">${esc(p.mapel)} · ${esc(nama)} · Kosongkan nilai santri yang belum dinilai. Nilai yang sudah ada otomatis terisi dan akan diperbarui.</div>
         <div class="table-wrap"><table class="data-table"><tr><th>Nama</th><th style="width:110px;">Nilai (0-100)</th></tr>
-          ${roster.map(s => `<tr><td>${esc(s.nama)}</td><td><input type="number" step="0.1" min="0" max="100" inputmode="decimal" data-santri="${esc(s.id)}" value="${ada[String(s.id)] !== undefined ? esc(ada[String(s.id)]) : ""}" style="height:36px;"></td></tr>`).join("")}
+          ${roster.map(s => `<tr><td>${esc(s.nama)}</td><td><input type="number" step="0.1" min="0" max="100" inputmode="decimal" data-santri="${esc(s.id)}" value="${ada[String(s.id)] !== undefined ? esc(ada[String(s.id)]) : ""}" style="height:38px;"></td></tr>`).join("")}
         </table></div>
         <button class="btn btn-primary btn-block mt-2" id="nl-simpan">Simpan Nilai</button><div id="nl-pesan" class="mt-1"></div>`;
       const simpan = el("nl-simpan");
@@ -618,52 +640,117 @@ Router.add("nilai", async (root) => {
         simpan.disabled = true; simpan.textContent = "Menyimpan...";
         const items = Array.from(wadah.querySelectorAll("input[data-santri]")).filter(i => i.value !== "").map(i => ({ id_santri: i.dataset.santri, nilai: i.value }));
         try {
-          const hasil = await Api.call("nilai.saveBatch", { kelas_id: p.kelasId, mapel: p.mapel, jenis: p.jenis, id_ujian: p.idUjian, nama_penilaian: p.namaPenilaian, tanggal: p.tanggal, items });
+          const hasil = await Api.call("nilai.saveBatch", Object.assign(kunciGrup(p), { mapel: p.mapel, jenis: p.jenis, id_ujian: p.idUjian, nama_penilaian: p.namaPenilaian, tanggal: p.tanggal, items }));
           const pesanOk = `<div class="alert alert-success">${hasil.tersimpan} nilai tersimpan (semester ${esc(hasil.semester)}, ${esc(hasil.tahun_ajaran)}). Wali santri diberi tahu otomatis.</div>`;
-          await muatData(); // memuat ulang daftar (nilai terisi otomatis), lalu tampilkan pesan lagi
+          await muatData();
           if (el("nl-pesan")) el("nl-pesan").innerHTML = pesanOk;
         } catch (err) { el("nl-pesan").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
         simpan.disabled = false; simpan.textContent = "Simpan Nilai";
       });
     }
 
+    const tombolMuat = `<button class="btn btn-secondary btn-block" id="nl-muat">Tampilkan Daftar Santri</button>`;
+    const resetDaftar = () => { if (!bisaInput) return; el("nl-daftar").dataset.aktif = "0"; el("nl-daftar").innerHTML = tombolMuat; el("nl-muat").addEventListener("click", gambarDaftar); };
     const perbarui = () => { if (bisaInput) el("nl-nama-wrap").style.display = pilihan().jenis === "harian" ? "block" : "none"; muatData(); };
-    ["nl-kelas", "nl-mapel"].forEach(id => el(id).addEventListener("change", () => { if (bisaInput) el("nl-daftar").dataset.aktif = "0"; if (bisaInput) el("nl-daftar").innerHTML = ""; perbarui(); }));
+    el("nl-kelas").addEventListener("change", () => { isiMapel(); resetDaftar(); perbarui(); });
+    el("nl-mapel").addEventListener("change", () => { resetDaftar(); perbarui(); });
     if (bisaInput) {
-      el("nl-jenis").addEventListener("change", () => { el("nl-daftar").innerHTML = ""; el("nl-daftar").dataset.aktif = "0"; perbarui(); });
-      ["nl-nama", "nl-tanggal"].forEach(id => el(id).addEventListener("input", () => { el("nl-daftar").dataset.aktif = "0"; el("nl-daftar").innerHTML = `<button class="btn btn-secondary btn-block" id="nl-muat">Tampilkan Daftar Santri</button>`; el("nl-muat").addEventListener("click", gambarDaftar); }));
-      el("nl-daftar").innerHTML = `<button class="btn btn-secondary btn-block" id="nl-muat">Tampilkan Daftar Santri</button>`;
-      el("nl-muat").addEventListener("click", gambarDaftar);
-      el("nl-jenis").addEventListener("change", () => { el("nl-daftar").innerHTML = `<button class="btn btn-secondary btn-block" id="nl-muat">Tampilkan Daftar Santri</button>`; el("nl-muat").addEventListener("click", gambarDaftar); });
+      el("nl-jenis").addEventListener("change", () => { resetDaftar(); perbarui(); });
+      ["nl-nama", "nl-tanggal"].forEach(id => el(id).addEventListener("input", resetDaftar));
+      resetDaftar();
     }
+    isiMapel();
     await muatData();
   } catch (err) { tampilkanGalat(main, err); }
 });
 
 // ======================= RAPORT (PTS & Semester) =======================
 
+function barisPeringkatFE(r) {
+  const k = r.ranking, hasil = [];
+  if (k.tampil_kelas) hasil.push([`Peringkat di ${r.santri.grup_label}`, k.kelas ? `Ke-${k.kelas} dari ${k.jumlah_kelas} santri` : "-"]);
+  if (k.tampil_paralel) hasil.push(["Peringkat Paralel", k.paralel ? `Ke-${k.paralel} dari ${k.jumlah_paralel} santri (tingkat ${r.santri.tingkat})` : "-"]);
+  return hasil;
+}
+
+function dasarPeringkatFE(r) {
+  const kel = r.santri.grup_label === "Kelompok";
+  let s = `Berdasarkan ${r.jenis === "hafalan" ? "total halaman setoran baru" : "rata-rata nilai akhir"} seluruh santri ${kel ? "sekelompok" : "sekelas"}`;
+  if (r.ranking.tampil_paralel) s += `; peringkat paralel membandingkan seluruh ${kel ? "kelompok" : "kelas"} pada tingkat ${r.santri.tingkat}`;
+  return s;
+}
+
+function kotakRingkasFE(judul, baris) {
+  return `<div class="ringkas-kotak"><h4>${judul}</h4><dl>${baris.map(b => `<dt>${b[0]}</dt><dd>${b[1]}</dd>`).join("")}</dl></div>`;
+}
+
+function hasilRaportHtml(r) {
+  const f = (n) => n === null || n === undefined ? "-" : String(n).replace(".", ",");
+  const peringkat = barisPeringkatFE(r).map(b => [esc(b[0]), esc(b[1])]);
+  const adaPeringkat = peringkat.length > 0;
+  if (r.jenis === "hafalan") {
+    const h = r.hafalan, k = h.kehadiran;
+    return `<div class="card">
+      <h3>${esc(r.teks.judul)} — ${esc(r.semester)} ${esc(r.tahun_ajaran)}</h3>
+      <div class="text-sm mb-1"><b>${esc(r.santri.nama)}</b> · NIS ${esc(r.santri.nis)} · ${esc(r.santri.grup_label)} ${esc(r.santri.kelas)} · ${esc(r.lembaga.nama)}</div>
+      ${r.rows.length === 0 ? `<div class="empty-state">Belum ada setoran hafalan pada semester ini.</div>` : `
+      <div class="table-wrap"><table class="data-table"><tr><th>No</th><th>Tanggal</th><th>Juz</th><th>Surah</th><th>Halaman</th><th>Jenis</th><th>Catatan</th></tr>
+        ${r.rows.map(b => `<tr><td>${b.no}</td><td>${fmtTanggal(b.tanggal)}</td><td>${esc(b.juz)}</td><td>${esc(b.surah)}</td><td>${esc(b.halaman)}</td><td>${esc(b.jenis)}</td><td>${esc(b.catatan) || "-"}</td></tr>`).join("")}
+      </table></div>`}
+      <div class="ringkas-raport">
+        ${kotakRingkasFE("Ringkasan Hafalan", [
+          ["Periode", `${esc(h.periode.dari)} s.d. ${esc(h.periode.sampai)}`], ["Jumlah Setoran", `${h.jumlah_setoran} (baru ${h.jumlah_baru}, murajaah ${h.jumlah_murajaah})`],
+          ["Halaman Setoran Baru", `${h.halaman_baru} halaman`], ["Juz Tertinggi", h.juz_tertinggi ? `Juz ${h.juz_tertinggi}` : "-"],
+          ["Kehadiran Halaqah", k.total ? `${k.Hadir} hadir dari ${k.total} pertemuan (${k.persen}%)` : "-"]].concat(peringkat))}
+        ${kotakRingkasFE("Keterangan", [["Halaman", "Halaman mushaf (1–604)"], ["Sakit / Izin / Alpa", k.total ? `${k.Sakit} / ${k.Izin} / ${k.Alpa}` : "-"]].concat(adaPeringkat ? [["Peringkat", esc(dasarPeringkatFE(r))]] : []))}
+      </div></div>`;
+  }
+  const sem = r.jenis === "semester";
+  return `<div class="card">
+    <h3>${esc(r.teks.judul)} — ${esc(r.semester)} ${esc(r.tahun_ajaran)}</h3>
+    <div class="text-sm mb-1"><b>${esc(r.santri.nama)}</b> · NIS ${esc(r.santri.nis)} · ${esc(r.santri.grup_label)} ${esc(r.santri.kelas)} · ${esc(r.lembaga.nama)}</div>
+    ${r.rows.length === 0 ? `<div class="empty-state">Belum ada nilai pada semester &amp; tahun ajaran ini.</div>` : `
+    <div class="table-wrap"><table class="data-table">
+      <tr><th>Mata Pelajaran</th><th>Harian</th><th>PTS</th>${sem ? "<th>PAS</th>" : ""}<th>Nilai Akhir</th><th>Predikat</th></tr>
+      ${r.rows.map(b => `<tr><td>${esc(b.mapel)}</td><td>${f(b.harian)}</td><td>${f(b.pts)}</td>${sem ? `<td>${f(b.pas)}</td>` : ""}<td><b>${f(b.akhir)}</b></td><td>${esc(b.predikat)}</td></tr>`).join("")}
+    </table></div>
+    <div class="ringkas-raport">
+      ${kotakRingkasFE("Ringkasan Hasil", [["Jumlah Nilai Akhir", f(r.jumlah)], ["Rata-rata Nilai Akhir", f(r.rata_rata)], ["Predikat", esc(r.predikat || "-")]].concat(peringkat))}
+      ${kotakRingkasFE("Keterangan", [["Bobot penilaian", `Harian ${r.bobot.harian}%, PTS ${r.bobot.pts}%${sem ? `, PAS ${r.bobot.pas}%` : ""}`], ["Predikat", "A ≥ 90 · B ≥ 80 · C ≥ 70 · D &lt; 70"]]
+        .concat(adaPeringkat ? [["Peringkat", esc(dasarPeringkatFE(r))]] : []).concat([["Tanda \"-\"", "Belum ada nilai"]]))}
+    </div>`}
+  </div>`;
+}
+
 Router.add("raport", async (root) => {
   root.innerHTML = Shell("raport", `<div class="loading">Memuat...</div>`);
   const main = document.querySelector("main.content");
   const profil = Auth.getProfil();
   const isWali = profil.peran === "wali_santri";
+  const guru = profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq";
+  const csv = (s) => String(s || "").split(",").map(x => x.trim()).filter(Boolean);
   try {
-    const [kelasRes, santriRes, peng] = await Promise.all([Ref.kelas(), Ref.santriSemua(), Ref.pengaturan()]);
-    let daftarKelas = kelasRes.items || [];
-    if (profil.peran === "guru_mapel") {
-      const d = (profil.kelas_diampu || "").split(",");
-      daftarKelas = daftarKelas.filter(k => d.indexOf(k.id) !== -1);
+    const [kelasRes, kelompokRes, lembagaRes, jenisRes, santriRes, peng] = await Promise.all([
+      isWali ? { items: [] } : Ref.kelas(), isWali ? { items: [] } : Ref.kelompok(), isWali ? { items: [] } : Ref.lembaga(), Ref.jenisRaport(), isWali ? { items: [] } : Ref.santriSemua(), Ref.pengaturan()]);
+    const lembaga = lembagaRes.items || [];
+    let jenisList = (jenisRes.items || []).filter(j => j.status !== "nonaktif");
+    let anak = null;
+    if (isWali) {
+      anak = (await Api.call("santri.detail", { id: profil.id_santri_anak })).santri;
+      jenisList = jenisList.filter(j => j.jenis_lembaga === "tpq" ? !!anak.id_kelompok : !!anak.id_kelas);
+    } else if (guru) {
+      jenisList = jenisList.filter(j => j.jenis_lembaga === "tpq" ? csv(profil.kelompok_diampu).length > 0 : csv(profil.kelas_diampu).length > 0);
     }
     const santriAktif = (santriRes.items || []).filter(s => s.status === "aktif");
 
-    main.innerHTML = `
+    main.innerHTML = jenisList.length === 0 ? `<div class="card"><div class="empty-state">Belum ada jenis raport yang dapat Anda gunakan. Hubungi admin.</div></div>` : `
       <div class="card">
         <h3>Raport</h3>
+        <div class="field"><label>Jenis Raport</label><select id="rp-jenis">${jenisList.map(j => `<option value="${esc(j.id)}">${esc(j.nama)} (${esc(j.nama_lembaga)})</option>`).join("")}</select></div>
         ${isWali ? "" : `<div class="grid-2">
-          <div class="field"><label>Kelas</label><select id="rp-kelas">${daftarKelas.map(k => `<option value="${esc(k.id)}">${esc(k.nama_kelas)}</option>`).join("")}</select></div>
+          <div class="field"><label id="rp-label-grup">Kelas</label><select id="rp-kelas"></select></div>
           <div class="field"><label>Santri</label><select id="rp-santri"></select></div></div>`}
-        <div class="grid-2" style="grid-template-columns:repeat(3,1fr);">
-          <div class="field"><label>Jenis Raport</label><select id="rp-jenis"><option value="pts">Raport PTS</option><option value="semester">Raport Semester</option></select></div>
+        <div class="grid-2">
           <div class="field"><label>Semester</label><select id="rp-semester"><option ${peng.semester_aktif === "Ganjil" ? "selected" : ""}>Ganjil</option><option ${peng.semester_aktif === "Genap" ? "selected" : ""}>Genap</option></select></div>
           <div class="field"><label>Tahun Ajaran</label><input type="text" id="rp-tahun" value="${esc(peng.tahun_ajaran)}"></div>
         </div>
@@ -671,57 +758,46 @@ Router.add("raport", async (root) => {
       </div>
       <div id="rp-hasil"></div>
       ${isWali ? "" : `<div id="leger-wrap"></div>`}`;
+    if (jenisList.length === 0) return;
 
     const el = (id) => document.getElementById(id);
+    const jenisTerpilih = () => jenisList.find(j => j.id === el("rp-jenis").value) || jenisList[0];
+    function isiGrup() {
+      if (isWali) return;
+      const j = jenisTerpilih(), tpq = j.jenis_lembaga === "tpq";
+      el("rp-label-grup").textContent = tpq ? "Kelompok" : "Kelas";
+      const sumber = tpq ? (kelompokRes.items || []) : (kelasRes.items || []);
+      const diampu = csv(tpq ? profil.kelompok_diampu : profil.kelas_diampu);
+      const daftar = sumber.filter(g => lembagaGrup(lembaga, g, tpq ? "kelompok" : "kelas") === String(j.id_lembaga) && (!guru || diampu.indexOf(g.id) !== -1));
+      el("rp-kelas").innerHTML = daftar.length === 0 ? `<option value="">(belum ada)</option>` : daftar.map(g => `<option value="${esc(g.id)}">${esc(tpq ? g.nama_kelompok : g.nama_kelas)}</option>`).join("");
+      isiSantri();
+    }
     function isiSantri() {
       if (isWali) return;
-      const kelasId = el("rp-kelas").value;
-      el("rp-santri").innerHTML = santriAktif.filter(s => String(s.id_kelas) === String(kelasId)).sort((a, b) => String(a.nama).localeCompare(String(b.nama)))
+      const tpq = jenisTerpilih().jenis_lembaga === "tpq", bidang = tpq ? "id_kelompok" : "id_kelas";
+      el("rp-santri").innerHTML = santriAktif.filter(s => String(s[bidang]) === String(el("rp-kelas").value)).sort((a, b) => String(a.nama).localeCompare(String(b.nama)))
         .map(s => `<option value="${esc(s.id)}">${esc(s.nama)}</option>`).join("");
     }
-    if (!isWali) { el("rp-kelas").addEventListener("change", isiSantri); isiSantri(); }
+    if (!isWali) { el("rp-jenis").addEventListener("change", () => { isiGrup(); el("rp-hasil").innerHTML = ""; if (typeof pasangLeger === "function") pasangLeger(paramLeger); }); el("rp-kelas").addEventListener("change", isiSantri); isiGrup(); }
     const param = () => ({
-      id_santri: isWali ? profil.id_santri_anak : el("rp-santri").value, jenis: el("rp-jenis").value,
+      id_santri: isWali ? profil.id_santri_anak : el("rp-santri").value, jenis_raport_id: el("rp-jenis").value,
       semester: el("rp-semester").value, tahun_ajaran: el("rp-tahun").value.trim()
     });
+    const paramLeger = () => {
+      const tpq = jenisTerpilih().jenis_lembaga === "tpq", g = el("rp-kelas").value;
+      return Object.assign({ jenis_raport_id: el("rp-jenis").value, semester: el("rp-semester").value, tahun_ajaran: el("rp-tahun").value.trim() }, tpq ? { kelompok_id: g } : { kelas_id: g });
+    };
 
     el("rp-tampil").addEventListener("click", async () => {
       const hasilEl = el("rp-hasil");
       const prm = param();
       if (!prm.id_santri) { hasilEl.innerHTML = `<div class="alert alert-error">Pilih santri dulu.</div>`; return; }
       hasilEl.innerHTML = `<div class="loading">Menghitung raport...</div>`;
-      try {
-        const r = await Api.call("raport.get", prm);
-        const f = (n) => n === null || n === undefined ? "-" : String(n).replace(".", ",");
-        const sem = r.jenis === "semester";
-        const pred = r.rata_rata === null ? "-" : (r.rata_rata >= 90 ? "A" : r.rata_rata >= 80 ? "B" : r.rata_rata >= 70 ? "C" : "D");
-        hasilEl.innerHTML = `<div class="card">
-          <h3>${sem ? "Raport Semester" : "Raport PTS"} — ${esc(r.semester)} ${esc(r.tahun_ajaran)}</h3>
-          <div class="text-sm mb-1"><b>${esc(r.santri.nama)}</b> · NIS ${esc(r.santri.nis)} · ${esc(r.santri.kelas)}</div>
-          ${r.rows.length === 0 ? `<div class="empty-state">Belum ada nilai pada semester &amp; tahun ajaran ini.</div>` : `
-          <div class="table-wrap"><table class="data-table">
-            <tr><th>Mata Pelajaran</th><th>Harian</th><th>PTS</th>${sem ? "<th>PAS</th>" : ""}<th>Nilai Akhir</th><th>Predikat</th></tr>
-            ${r.rows.map(b => `<tr><td>${esc(b.mapel)}</td><td>${f(b.harian)}</td><td>${f(b.pts)}</td>${sem ? `<td>${f(b.pas)}</td>` : ""}<td><b>${f(b.akhir)}</b></td><td>${esc(b.predikat)}</td></tr>`).join("")}
-          </table></div>
-          <div class="ringkas-raport">
-            <div class="ringkas-kotak"><h4>Ringkasan Hasil</h4><dl>
-              <dt>Jumlah Nilai Akhir</dt><dd>${f(r.jumlah)}</dd>
-              <dt>Rata-rata Nilai Akhir</dt><dd>${f(r.rata_rata)}</dd>
-              <dt>Predikat</dt><dd>${pred}</dd>
-              <dt>Peringkat di Kelas</dt><dd>${r.peringkat ? `Ke-${r.peringkat} dari ${r.jumlah_santri_kelas} santri` : "-"}</dd>
-            </dl></div>
-            <div class="ringkas-kotak"><h4>Keterangan</h4><dl>
-              <dt>Bobot penilaian</dt><dd>Harian ${r.bobot.harian}%, PTS ${r.bobot.pts}%${sem ? `, PAS ${r.bobot.pas}%` : ""}</dd>
-              <dt>Predikat</dt><dd>A ≥ 90 · B ≥ 80 · C ≥ 70 · D &lt; 70</dd>
-              <dt>Peringkat</dt><dd>Berdasarkan rata-rata nilai akhir seluruh santri sekelas</dd>
-              <dt>Tanda "-"</dt><dd>Belum ada nilai</dd>
-            </dl></div>
-          </div>`}
-        </div>`;
-      } catch (err) { tampilkanGalat(hasilEl, err); }
+      try { hasilEl.innerHTML = hasilRaportHtml(await Api.call("raport.get", prm)); }
+      catch (err) { tampilkanGalat(hasilEl, err); }
     });
 
-    if (!isWali) pasangLeger(() => ({ kelas_id: el("rp-kelas").value, jenis: el("rp-jenis").value, semester: el("rp-semester").value, tahun_ajaran: el("rp-tahun").value.trim() }));
+    if (!isWali) pasangLeger(paramLeger);
 
     el("rp-pdf").addEventListener("click", async (e) => {
       const btn = e.target, prm = param();
@@ -731,6 +807,7 @@ Router.add("raport", async (root) => {
         const d = await Api.call("raport.pdf", prm);
         const a = document.createElement("a");
         a.href = "data:application/pdf;base64," + d.base64; a.download = d.nama_file; a.click();
+        if (d.peringatan) alert(d.peringatan);
       } catch (err) { alert(err.message); }
       btn.disabled = false; btn.textContent = "Cetak PDF";
     });
@@ -1037,7 +1114,8 @@ Router.add("jurnal", async (root) => {
   const el = (id) => document.getElementById(id);
 
   try {
-    const [jamRes, kelasRes, kelompokRes, mapelRes] = await Promise.all([Ref.jam(), Ref.kelas(), Ref.kelompok(), Ref.mapel()]);
+    const [jamRes, kelasRes, kelompokRes, mapelRes, lembagaRes] = await Promise.all([Ref.jam(), Ref.kelas(), Ref.kelompok(), Ref.mapel(), Ref.lembaga()]);
+    const lembagaItems = lembagaRes.items || [];
     const slotJam = (jamRes.items || []).filter(s => s.jenis === "jam");
     const semuaMapel = (mapelRes.items || []).map(m => m.nama_mapel);
     const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -1074,8 +1152,16 @@ Router.add("jurnal", async (root) => {
         wadah.innerHTML = isAdmin ? `<div class="card"><div class="text-muted text-sm">Jurnal diisi oleh guru. Sebagai admin, Anda dapat <b>mengubah</b> atau <b>menghapus</b> jurnal yang salah lewat tombol di tabel di bawah.</div><div id="jr-pesan" class="mt-1"></div></div>` : "";
         return;
       }
+      // Saat mengisi baru, guru memilih dari SEMUA kelas (SMP) dan kelompok (TPQ) yang diampu; saat mengubah, jenisnya tetap.
+      const csvJ = (s) => String(s || "").split(",").map(x => x.trim()).filter(Boolean);
+      const gabung = (!e && !isAdmin) ? []
+        .concat((kelasRes.items || []).filter(k => csvJ(profil.kelas_diampu).indexOf(k.id) !== -1).map(k => ({ jenis: "sekolah", id: k.id, nama: k.nama_kelas, lem: lembagaGrup(lembagaItems, k, "kelas") })))
+        .concat((kelompokRes.items || []).filter(k => csvJ(profil.kelompok_diampu).indexOf(k.id) !== -1).map(k => ({ jenis: "ptq", id: k.id, nama: k.nama_kelompok, lem: lembagaGrup(lembagaItems, k, "kelompok") }))) : null;
       const jenisJurnal = e ? e.jenis : (profil.peran === "guru_mapel" ? "sekolah" : "ptq");
       const ref = opsiRef(jenisJurnal);
+      const namaLemJ = (id) => { const l = lembagaItems.find(x => String(x.id) === String(id)); return l ? l.nama : "Lainnya"; };
+      const optRef = gabung ? (gabung.length === 0 ? `<option value="">(belum ditugaskan)</option>` : Object.keys(gabung.reduce((a, g) => { a[g.lem] = 1; return a; }, {})).map(l => `<optgroup label="${esc(namaLemJ(l))}">${gabung.filter(g => g.lem === l).map(g => `<option value="${g.jenis}:${esc(g.id)}">${esc(g.nama)}${g.jenis === "ptq" ? " (kelompok)" : ""}</option>`).join("")}</optgroup>`).join(""))
+        : (ref.list.length === 0 ? `<option value="">(belum ditugaskan)</option>` : ref.list.map(k => `<option value="${esc(k.id)}" ${e && String(e.id_ref) === String(k.id) ? "selected" : ""}>${esc(k[ref.field])}</option>`).join(""));
       const mapelPilihan = (isAdmin || mapelSaya.length === 0) ? null : mapelSaya.slice();
       if (mapelPilihan && e && mapelPilihan.indexOf(e.mapel) === -1) mapelPilihan.push(e.mapel);
       const jamLabel = slotJam.map(s => s.label);
@@ -1087,8 +1173,8 @@ Router.add("jurnal", async (root) => {
           <form id="form-jurnal">
             <div class="grid-2">
               <div class="field"><label>Tanggal</label><input type="date" id="jr-tanggal" value="${e ? esc(e.tanggal) : tglHariIni()}" required></div>
-              <div class="field"><label>${ref.label}</label>
-                <select id="jr-ref" required>${ref.list.length === 0 ? `<option value="">(belum ditugaskan)</option>` : ref.list.map(k => `<option value="${esc(k.id)}" ${e && String(e.id_ref) === String(k.id) ? "selected" : ""}>${esc(k[ref.field])}</option>`).join("")}</select>
+              <div class="field"><label>${gabung ? "Kelas / Kelompok" : ref.label}</label>
+                <select id="jr-ref" required>${optRef}</select>
               </div>
             </div>
             <div id="jr-libur"></div>
@@ -1128,7 +1214,7 @@ Router.add("jurnal", async (root) => {
         pesanEl.innerHTML = "";
         try {
           await Api.call("jurnal.save", { data: {
-            id: e ? e.id : undefined, tanggal: el("jr-tanggal").value, id_ref: el("jr-ref").value, jam_ke: el("jr-jam").value,
+            id: e ? e.id : undefined, tanggal: el("jr-tanggal").value, id_ref: gabung ? el("jr-ref").value.split(":")[1] : el("jr-ref").value, jenis: gabung ? el("jr-ref").value.split(":")[0] : undefined, jam_ke: el("jr-jam").value,
             mapel: el("jr-mapel").value, materi: el("jr-materi").value, catatan: el("jr-catatan").value
           } });
           const sebelumnya = !!e;

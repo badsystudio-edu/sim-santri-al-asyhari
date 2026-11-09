@@ -62,6 +62,8 @@ async function amanItems(fetcher) {
 const Ref = {
   kelas: () => RefCache.get("kelas", () => amanItems(() => Api.call("master.list", { entity: "kelas" }))),
   kelompok: () => RefCache.get("kelompok", () => amanItems(() => Api.call("master.list", { entity: "kelompok" }))),
+  lembaga: () => RefCache.get("lembaga", () => amanItems(() => Api.call("master.list", { entity: "lembaga" }))),
+  jenisRaport: () => RefCache.get("jenis_raport", () => amanItems(() => Api.call("jenisraport.list", {})), 60 * 1000),
   kamar: () => RefCache.get("kamar", () => amanItems(() => Api.call("master.list", { entity: "kamar" }))),
   wali: () => RefCache.get("wali", () => amanItems(() => Api.call("master.list", { entity: "wali" }))),
   mapel: () => RefCache.get("mapel", () => amanItems(() => Api.call("master.list", { entity: "mapel" }))),

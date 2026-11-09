@@ -11,8 +11,8 @@ const NAV_ITEMS = [
   { key: "anaksaya", label: "Anak Saya", icon: "🧒", roles: ["wali_santri"] },
   { key: "presensi", label: "Presensi", icon: "✅", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "jurnal", label: "Jurnal", icon: "📝", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
-  { key: "nilai", label: "Nilai", icon: "🧮", roles: ["admin", "guru_mapel", "pimpinan"] },
-  { key: "raport", label: "Raport", icon: "📄", roles: ["admin", "guru_mapel", "pimpinan", "wali_santri"] },
+  { key: "nilai", label: "Nilai", icon: "🧮", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
+  { key: "raport", label: "Raport", icon: "📄", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan", "wali_santri"] },
   { key: "hafalan", label: "Hafalan", icon: "📖", roles: ["admin", "pengajar_tpq", "pimpinan"] },
   { key: "santri", label: "Santri", icon: "👤", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "kartu", label: "Kartu Santri", icon: "🪪", roles: ["admin"] },
@@ -248,22 +248,21 @@ Router.add("presensi", async (root) => {
   const profil = Auth.getProfil();
   const isPimpinan = profil.peran === "pimpinan";
   const mapelSaya = (profil.mapel || "").split(",").map(s => s.trim()).filter(Boolean);
-  const isSekolah = profil.peran === "guru_mapel" || profil.peran === "admin";
-  const isTpq = profil.peran === "pengajar_tpq" || profil.peran === "admin";
+  let isSekolah = false, isTpq = false; // ditentukan dari penugasan: satu guru bisa mengampu kelas SMP dan kelompok TPQ
 
   try {
     const [kelasData, kelompokData] = await Promise.all([Ref.kelas(), Ref.kelompok()]);
 
     let daftarKelas = kelasData.items;
     let daftarKelompok = kelompokData.items;
-    if (profil.peran === "guru_mapel") {
-      const diampu = (profil.kelas_diampu || "").split(",");
-      daftarKelas = daftarKelas.filter(k => diampu.indexOf(k.id) !== -1);
+    if (profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq") {
+      const dKelas = (profil.kelas_diampu || "").split(",").map(s => s.trim());
+      const dKel = (profil.kelompok_diampu || "").split(",").map(s => s.trim());
+      daftarKelas = daftarKelas.filter(k => dKelas.indexOf(k.id) !== -1);
+      daftarKelompok = daftarKelompok.filter(k => dKel.indexOf(k.id) !== -1);
     }
-    if (profil.peran === "pengajar_tpq") {
-      const diampu = (profil.kelompok_diampu || "").split(",");
-      daftarKelompok = daftarKelompok.filter(k => diampu.indexOf(k.id) !== -1);
-    }
+    isSekolah = profil.peran === "admin" || daftarKelas.length > 0;
+    isTpq = profil.peran === "admin" || daftarKelompok.length > 0;
 
     if (isPimpinan) {
       // Pimpinan bersifat read-only: tidak ada form input harian, langsung ke rekap bulanan.
@@ -788,15 +787,48 @@ function fileToBase64(file) {
 
 // ======================= DATA MASTER =======================
 
+const LEMBAGA_JENIS = [["sekolah", "Sekolah — santri dikelompokkan per Kelas"], ["tpq", "TPQ — santri dikelompokkan per Kelompok"]];
 const MASTER_TABS = [
-  { key: "kelas", label: "Kelas", fields: [{ id: "nama_kelas", label: "Nama Kelas" }, { id: "wali_kelas", label: "Wali Kelas" }] },
-  { key: "kelompok", label: "Kelompok PTQ", fields: [{ id: "nama_kelompok", label: "Nama Kelompok" }, { id: "pengajar", label: "Pengajar" }] },
+  { key: "lembaga", label: "Lembaga", info: "Satu yayasan dapat memiliki beberapa lembaga (mis. SMP dan TPQ). Tiap kelas, kelompok, dan mata pelajaran dikaitkan ke lembaganya agar raport, nilai, dan akses guru terpisah dengan benar.",
+    fields: [{ id: "nama", label: "Nama Lembaga (mis. SMP, TPQ)" }, { id: "kode", label: "Kode singkat (opsional)", opsional: true }, { id: "jenis", label: "Pengelompokan santri", options: LEMBAGA_JENIS }] },
+  { key: "kelas", label: "Kelas", fields: [{ id: "nama_kelas", label: "Nama Kelas" }, { id: "wali_kelas", label: "Wali Kelas" },
+    { id: "id_lembaga", label: "Lembaga", ref: "lembaga", jenis: "sekolah" }, { id: "tingkat", label: "Tingkat untuk peringkat paralel (mis. 7)", opsional: true }] },
+  { key: "kelompok", label: "Kelompok PTQ/TPQ", fields: [{ id: "nama_kelompok", label: "Nama Kelompok" }, { id: "pengajar", label: "Pengajar" },
+    { id: "id_lembaga", label: "Lembaga", ref: "lembaga", jenis: "tpq" }, { id: "tingkat", label: "Tingkat untuk peringkat paralel (mis. Jilid 1)", opsional: true }] },
   { key: "kamar", label: "Kamar", fields: [{ id: "nama_kamar", label: "Nama Kamar" }, { id: "kapasitas", label: "Kapasitas" }] },
-  { key: "mapel", label: "Mata Pelajaran", fields: [{ id: "nama_mapel", label: "Nama Mata Pelajaran" }] },
+  { key: "mapel", label: "Mata Pelajaran", fields: [{ id: "nama_mapel", label: "Nama Mata Pelajaran" }, { id: "id_lembaga", label: "Untuk lembaga", ref: "lembaga", kosong: "Umum (semua lembaga)" }] },
   { key: "jenis_ujian", label: "Jenis Ujian", fields: [{ id: "nama", label: "Nama Ujian (mis. PTS Ganjil)" }, { id: "kategori", label: "Kategori", options: ["PTS", "PAS"] }, { id: "semester", label: "Semester", options: ["Ganjil", "Genap"] }] },
   { key: "jenis_pelanggaran", label: "Jenis Pelanggaran", fields: [{ id: "nama", label: "Nama Pelanggaran" }] },
   { key: "wali", label: "Wali Santri", fields: [{ id: "nama_wali", label: "Nama Wali" }, { id: "hubungan", label: "Hubungan" }, { id: "kontak", label: "No. WhatsApp" }] }
 ];
+
+function opsiPasang(o) { return Array.isArray(o) ? o : [o, o]; }
+
+// Satu isian formulir master (teks / pilihan tetap / pilihan lembaga).
+function isianMaster(f, nilai, lembaga, awalan) {
+  const id = awalan + f.id;
+  let kontrol;
+  if (f.options) {
+    kontrol = `<select id="${id}">${f.options.map(opsiPasang).map(([v, l]) => `<option value="${esc(v)}" ${String(nilai) === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+  } else if (f.ref) {
+    const daftar = (lembaga || []).filter(l => l.status !== "nonaktif" && (!f.jenis || l.jenis === f.jenis));
+    kontrol = `<select id="${id}">${f.kosong ? `<option value="">${esc(f.kosong)}</option>` : ""}${daftar.map(l => `<option value="${esc(l.id)}" ${String(nilai) === String(l.id) ? "selected" : ""}>${esc(l.nama)}</option>`).join("")}</select>`;
+  } else {
+    kontrol = `<input type="text" id="${id}" value="${esc(nilai || "")}" ${f.opsional ? "" : "required"}>`;
+  }
+  return `<div class="field"><label>${esc(f.label)}</label>${kontrol}</div>`;
+}
+
+function sel(f, item, lembaga) {
+  const nilai = item[f.id];
+  if (f.options) { const p = f.options.map(opsiPasang).find(([v]) => String(v) === String(nilai)); return esc(p ? p[1] : (nilai || "-")); }
+  if (f.ref) {
+    if (!nilai) return f.kosong ? esc(f.kosong) : `${esc(((lembaga || []).find(l => String(l.id) === lembagaDefaultFE(lembaga, f.jenis)) || {}).nama || "-")} <span class="text-muted text-sm">(otomatis)</span>`;
+    const l = (lembaga || []).find(x => String(x.id) === String(nilai));
+    return esc(l ? l.nama : nilai);
+  }
+  return esc(nilai || "-");
+}
 
 Router.add("master", async (root, params) => {
   const isAdmin = Auth.boleh("admin");
@@ -807,8 +839,9 @@ Router.add("master", async (root, params) => {
 
   main.innerHTML = `
     <div class="flex gap-1 mb-1" style="overflow-x:auto;">
-      ${MASTER_TABS.map(t => `<button class="btn ${t.key === activeTab ? "btn-primary" : "btn-secondary"} btn-sm" onclick="Router.go('master',{tab:'${t.key}'})">${t.label}</button>`).join("")}
+      ${MASTER_TABS.map(t => `<button class="btn ${t.key === tab.key ? "btn-primary" : "btn-secondary"} btn-sm" style="flex-shrink:0;" onclick="Router.go('master',{tab:'${t.key}'})">${t.label}</button>`).join("")}
     </div>
+    ${tab.info ? `<div class="card"><div class="text-sm">${tab.info}</div></div>` : ""}
     <div id="master-list"></div>
   `;
 
@@ -816,25 +849,25 @@ Router.add("master", async (root, params) => {
     const listEl = document.getElementById("master-list");
     listEl.innerHTML = `<div class="loading">Memuat data...</div>`;
     try {
-      const data = await Api.call("master.list", { entity: tab.key });
-      data.items = data.items || [];
+      const [data, lemRes] = await Promise.all([Api.call("master.list", { entity: tab.key }), Ref.lembaga()]);
+      const lembaga = lemRes.items || [];
+      const items = data.items || [];
       listEl.innerHTML = `
         ${isAdmin ? `<div class="card"><h3>Tambah ${tab.label}</h3>
           <form id="form-master">
-            ${tab.fields.map(f => `<div class="field"><label>${f.label}</label>${f.options ? `<select id="fm-${f.id}" required>${f.options.map(o => `<option>${o}</option>`).join("")}</select>` : `<input type="text" id="fm-${f.id}" required>`}</div>`).join("")}
+            ${tab.fields.map(f => isianMaster(f, "", lembaga, "fm-")).join("")}
             <button class="btn btn-primary btn-block" type="submit">Tambah</button>
           </form>
         </div>` : ""}
         <div class="card">
           <h3>Daftar ${tab.label}</h3>
-          ${(data.items || []).length === 0 ? `<div class="empty-state">Belum ada data.</div>` : `
+          ${items.length === 0 ? `<div class="empty-state">Belum ada data.</div>` : `
           <div class="table-wrap"><table class="data-table">
-            <tr>${tab.fields.map(f => `<th>${f.label}</th>`).join("")}${isAdmin ? "<th>Aksi</th>" : ""}</tr>
-            ${(data.items || []).map(item => `<tr>${tab.fields.map(f => `<td>${item[f.id] || "-"}</td>`).join("")}${isAdmin ? `<td><button class="btn btn-secondary btn-sm" onclick='editMaster("${tab.key}","${item.id}")'>Edit</button></td>` : ""}</tr>`).join("")}
+            <tr>${tab.fields.map(f => `<th>${esc(f.label.replace(/ \(.*\)$/, ""))}</th>`).join("")}${isAdmin ? "<th>Aksi</th>" : ""}</tr>
+            ${items.map(item => `<tr>${tab.fields.map(f => `<td>${sel(f, item, lembaga)}</td>`).join("")}${isAdmin ? `<td><button class="btn btn-secondary btn-sm" onclick='editMaster("${tab.key}","${esc(item.id)}")'>Edit</button></td>` : ""}</tr>`).join("")}
           </table></div>`}
         </div>
       `;
-
       const form = document.getElementById("form-master");
       if (form) {
         form.addEventListener("submit", async (e) => {
@@ -859,21 +892,23 @@ Router.add("master", async (root, params) => {
 
 window.editMaster = async function (entity, id) {
   const tab = MASTER_TABS.find(t => t.key === entity);
-  const data = await Api.call("master.list", { entity });
+  const [data, lemRes] = await Promise.all([Api.call("master.list", { entity }), Ref.lembaga()]);
   const item = (data.items || []).find(i => i.id === id);
   if (!item) return;
-  const nilaiBaru = {};
-  for (const f of tab.fields) {
-    const v = prompt(f.label + ":", item[f.id] || "");
-    if (v === null) return; // dibatalkan
-    nilaiBaru[f.id] = v;
-  }
-  nilaiBaru.id = id;
-  try {
-    await Api.call("master.save", { entity, data: nilaiBaru });
-    RefCache.invalidate(entity); // data master berubah, refresh cache lintas halaman
-    Router.render();
-  } catch (err) { alert(err.message); }
+  const m = bukaModal(`<span>✏️</span> Ubah ${esc(tab.label)}`,
+    `<form id="form-edit-master" onsubmit="return false;">${tab.fields.map(f => isianMaster(f, item[f.id], lemRes.items || [], "em-")).join("")}<div id="em-pesan"></div></form>`,
+    `<button type="button" class="btn btn-secondary" data-tutup="1">Batal</button><button type="button" class="btn btn-primary" id="em-simpan">Simpan</button>`);
+  m.overlay.querySelector("#em-simpan").addEventListener("click", async (e) => {
+    const nilaiBaru = { id };
+    tab.fields.forEach(f => { nilaiBaru[f.id] = document.getElementById("em-" + f.id).value; });
+    e.target.disabled = true;
+    try {
+      await Api.call("master.save", { entity, data: nilaiBaru });
+      RefCache.invalidate(entity); // data master berubah, refresh cache lintas halaman
+      m.tutup();
+      Router.render();
+    } catch (err) { document.getElementById("em-pesan").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; e.target.disabled = false; }
+  });
 };
 
 // ======================= PRESTASI =======================
@@ -1046,18 +1081,25 @@ Router.add("akun", async (root, params) => {
 
   async function muat() {
     try {
-      const [akunRes, kelasRes, kelompokRes, santriRes, mapelRes] = await Promise.all([
+      const [akunRes, kelasRes, kelompokRes, santriRes, mapelRes, lembagaRes] = await Promise.all([
         Api.call("akun.list", {}), // daftar akun tidak di-cache (sensitif & sering berubah)
         Ref.kelas(),
         Ref.kelompok(),
         Ref.santriSemua(),
-        Ref.mapel()
+        Ref.mapel(),
+        Ref.lembaga()
       ]);
+      const daftarLembaga = (lembagaRes.items || []).filter(l => l.status !== "nonaktif");
+      const namaLem = (id) => { const l = (lembagaRes.items || []).find(x => String(x.id) === String(id)); return l ? l.nama : ""; };
       const akunList = akunRes.items || [];
       const daftarKelas = kelasRes.items || [];
       const daftarKelompok = kelompokRes.items || [];
       const daftarSantri = (santriRes.items || []).filter(s => s.status === "aktif");
       const daftarMapel = mapelRes.items || [];
+      // Tambahkan nama lembaga pada label pilihan agar jelas mana milik SMP, TPQ, dan seterusnya.
+      const labelKelas = daftarKelas.map(k => Object.assign({}, k, { nama_kelas: `${k.nama_kelas} · ${namaLem(lembagaGrup(lembagaRes.items, k, "kelas"))}` }));
+      const labelKelompok = daftarKelompok.map(k => Object.assign({}, k, { nama_kelompok: `${k.nama_kelompok} · ${namaLem(lembagaGrup(lembagaRes.items, k, "kelompok"))}` }));
+      const labelMapel = daftarMapel.map(m => Object.assign({}, m, { nama_mapel: `${m.nama_mapel} · ${m.id_lembaga ? namaLem(m.id_lembaga) : "Umum"}` }));
       window.__akunDaftar = akunList;
       const existing = editingId ? akunList.find(a => a.id === editingId) : null;
       if (editingId && !existing) { Router.go("akun"); return; }
@@ -1094,17 +1136,22 @@ Router.add("akun", async (root, params) => {
               </div>
               <div class="field" id="ak-mapel-wrap"><label>Mata Pelajaran / Bidang (opsional)</label><input type="text" id="ak-mapel" value="${v("mapel") || v("bidang")}" placeholder="mis. Matematika, Tahfidz"></div>
             </div>
+            <div class="field" id="ak-lembaga-wrap" style="display:none;">
+              <label>Lembaga yang Diakses</label>
+              ${checkboxGroup("ak-lembaga", daftarLembaga, "nama", v("lembaga_akses"))}
+              <div class="text-muted text-sm mt-1">Kelas, kelompok, dan mata pelajaran di luar lembaga yang dicentang otomatis diabaikan saat disimpan. Kosongkan semua centang bila tidak ingin membatasi. Satu guru boleh mengampu SMP <b>dan</b> TPQ sekaligus.</div>
+            </div>
             <div class="field" id="ak-mapel-pilih-wrap" style="display:none;">
               <label>Mata Pelajaran yang Diampu (bisa pilih lebih dari satu)</label>
-              ${daftarMapel.length === 0 ? `<div class="text-muted text-sm">Belum ada mata pelajaran. Tambahkan dulu di menu Data Master &rarr; tab Mata Pelajaran.</div>` : checkboxGroup("ak-mapel", daftarMapel, "nama_mapel", v("mapel_diampu"))}
+              ${daftarMapel.length === 0 ? `<div class="text-muted text-sm">Belum ada mata pelajaran. Tambahkan dulu di menu Data Master &rarr; tab Mata Pelajaran.</div>` : checkboxGroup("ak-mapel", labelMapel, "nama_mapel", v("mapel_diampu"))}
             </div>
             <div class="field" id="ak-kelas-wrap" style="display:none;">
               <label>Kelas yang Diampu (bisa pilih lebih dari satu)</label>
-              ${checkboxGroup("ak-kelas", daftarKelas, "nama_kelas", v("kelas_diampu"))}
+              ${checkboxGroup("ak-kelas", labelKelas, "nama_kelas", v("kelas_diampu"))}
             </div>
             <div class="field" id="ak-kelompok-wrap" style="display:none;">
               <label>Kelompok PTQ yang Diampu (bisa pilih lebih dari satu)</label>
-              ${checkboxGroup("ak-kelompok", daftarKelompok, "nama_kelompok", v("kelompok_diampu"))}
+              ${checkboxGroup("ak-kelompok", labelKelompok, "nama_kelompok", v("kelompok_diampu"))}
             </div>
             <div class="field" id="ak-wali-wrap" style="display:none;">
               <label>Wali Kelas dari (opsional)</label>
@@ -1157,12 +1204,14 @@ Router.add("akun", async (root, params) => {
       const peranSelect = document.getElementById("ak-peran");
       function toggleRefFields() {
         const p = peranSelect.value;
-        document.getElementById("ak-kelas-wrap").style.display = p === "guru_mapel" ? "block" : "none";
-        document.getElementById("ak-kelompok-wrap").style.display = p === "pengajar_tpq" ? "block" : "none";
+        const guruRole = p === "guru_mapel" || p === "pengajar_tpq";
+        document.getElementById("ak-lembaga-wrap").style.display = guruRole ? "block" : "none";
+        document.getElementById("ak-kelas-wrap").style.display = guruRole ? "block" : "none";
+        document.getElementById("ak-kelompok-wrap").style.display = guruRole ? "block" : "none";
         document.getElementById("ak-wali-wrap").style.display = p === "guru_mapel" ? "block" : "none";
         document.getElementById("ak-santri-anak-wrap").style.display = p === "wali_santri" ? "block" : "none";
         document.getElementById("ak-mapel-wrap").style.display = (p === "wali_santri" || p === "guru_mapel") ? "none" : "block";
-        document.getElementById("ak-mapel-pilih-wrap").style.display = p === "guru_mapel" ? "block" : "none";
+        document.getElementById("ak-mapel-pilih-wrap").style.display = guruRole ? "block" : "none";
       }
       peranSelect.addEventListener("change", toggleRefFields);
       toggleRefFields();
@@ -1189,15 +1238,17 @@ Router.add("akun", async (root, params) => {
         const btn = e.target.querySelector("button[type=submit]");
         btn.disabled = true; btn.textContent = "Menyimpan...";
         try {
+          const guruPeran = peranSelect.value === "guru_mapel" || peranSelect.value === "pengajar_tpq";
           const dataAkun = {
             nama: document.getElementById("ak-nama").value,
             username: document.getElementById("ak-username").value,
             peran: peranSelect.value,
             mapel: peranSelect.value === "guru_mapel" ? "" : document.getElementById("ak-mapel").value,
             bidang: peranSelect.value === "guru_mapel" ? "" : document.getElementById("ak-mapel").value,
-            mapel_diampu: peranSelect.value === "guru_mapel" ? ambilChecklist("ak-mapel") : "",
-            kelas_diampu: peranSelect.value === "guru_mapel" ? ambilChecklist("ak-kelas") : "",
-            kelompok_diampu: peranSelect.value === "pengajar_tpq" ? ambilChecklist("ak-kelompok") : "",
+            mapel_diampu: guruPeran ? ambilChecklist("ak-mapel") : "",
+            kelas_diampu: guruPeran ? ambilChecklist("ak-kelas") : "",
+            kelompok_diampu: guruPeran ? ambilChecklist("ak-kelompok") : "",
+            lembaga_akses: guruPeran ? ambilChecklist("ak-lembaga") : "",
             wali_kelas_id: peranSelect.value === "guru_mapel" ? document.getElementById("ak-wali-kelas").value : "",
             id_santri_anak: peranSelect.value === "wali_santri" ? document.getElementById("ak-santri-anak").value : ""
           };
@@ -1639,6 +1690,7 @@ Router.add("jam", async (root, params) => {
 
     main.innerHTML = `
       <div id="peng-akademik"></div>
+      <div id="peng-jenis"></div>
       <div id="peng-kop"></div>
       <div id="peng-latar"></div>
       <div class="card">
@@ -1684,6 +1736,7 @@ Router.add("jam", async (root, params) => {
     `;
 
     renderPengaturanAkademik(document.getElementById("peng-akademik"));
+    renderJenisRaport(document.getElementById("peng-jenis"));
     renderPengaturanRaport(document.getElementById("peng-kop"));
     renderLatarAplikasi(document.getElementById("peng-latar"));
     if (isAdmin) {

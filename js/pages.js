@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { key: "jurnal", label: "Jurnal", icon: "📝", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "nilai", label: "Nilai", icon: "🧮", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "raport", label: "Raport", icon: "📄", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan", "wali_santri"] },
+  { key: "isiraport", label: "Isi Raport", icon: "📝", roles: ["admin", "guru_mapel", "pengajar_tpq"] },
   { key: "hafalan", label: "Hafalan", icon: "📖", roles: ["admin", "pengajar_tpq", "pimpinan"] },
   { key: "santri", label: "Santri", icon: "👤", roles: ["admin", "guru_mapel", "pengajar_tpq", "pimpinan"] },
   { key: "kartu", label: "Kartu Santri", icon: "🪪", roles: ["admin"] },
@@ -105,7 +106,7 @@ function judulHalaman(key) {
   const map = {
     dashboard: "Beranda", presensi: "Presensi", hafalan: "Hafalan Al-Qur'an",
     santri: "Data Santri", master: "Data Master", prestasi: "Prestasi Santri",
-    laporan: "Laporan", akun: "Kelola Akun", jurnal: "Jurnal Mengajar", jam: "Pengaturan Akademik", menu: "Semua Menu", nilai: "Nilai", raport: "Raport", pelanggaran: "Pelanggaran Santri", jumatamal: "Laporan Jumat Amal", pengumuman: "Pengumuman", kalender: "Kalender Pendidikan", anaksaya: "Anak Saya", notifikasi: "Notifikasi", harian: "Input Harian Cepat", kartu: "Kartu Tanda Santri", profil: "Akun Saya"
+    laporan: "Laporan", akun: "Kelola Akun", jurnal: "Jurnal Mengajar", jam: "Pengaturan Akademik", menu: "Semua Menu", nilai: "Nilai", raport: "Raport", pelanggaran: "Pelanggaran Santri", jumatamal: "Laporan Jumat Amal", pengumuman: "Pengumuman", kalender: "Kalender Pendidikan", anaksaya: "Anak Saya", notifikasi: "Notifikasi", harian: "Input Harian Cepat", kartu: "Kartu Tanda Santri", profil: "Akun Saya", isiraport: "Isi Raport"
   };
   return map[key] || "SIM Santri";
 }
@@ -790,14 +791,14 @@ function fileToBase64(file) {
 const LEMBAGA_JENIS = [["sekolah", "Sekolah — santri dikelompokkan per Kelas"], ["tpq", "TPQ — santri dikelompokkan per Kelompok"]];
 const MASTER_TABS = [
   { key: "lembaga", label: "Lembaga", info: "Satu yayasan dapat memiliki beberapa lembaga (mis. SMP dan TPQ). Tiap kelas, kelompok, dan mata pelajaran dikaitkan ke lembaganya agar raport, nilai, dan akses guru terpisah dengan benar.",
-    fields: [{ id: "nama", label: "Nama Lembaga (mis. SMP, TPQ)" }, { id: "kode", label: "Kode singkat (opsional)", opsional: true }, { id: "jenis", label: "Pengelompokan santri", options: LEMBAGA_JENIS }] },
+    fields: [{ id: "nama", label: "Nama Lembaga (mis. SMP, TPQ)" }, { id: "kode", label: "Kode singkat (opsional)", opsional: true }, { id: "jenis", label: "Pengelompokan santri", options: LEMBAGA_JENIS }, { id: "id_kepala", label: "Kepala lembaga (akun; namanya otomatis tampil di raport)", ref: "akun", kosong: "(belum dipilih — pakai isian manual)" }] },
   { key: "kelas", label: "Kelas", fields: [{ id: "nama_kelas", label: "Nama Kelas" }, { id: "wali_kelas", label: "Wali Kelas" },
     { id: "id_lembaga", label: "Lembaga", ref: "lembaga", jenis: "sekolah" }, { id: "tingkat", label: "Tingkat untuk peringkat paralel (mis. 7)", opsional: true }] },
   { key: "kelompok", label: "Kelompok PTQ/TPQ", fields: [{ id: "nama_kelompok", label: "Nama Kelompok" }, { id: "pengajar", label: "Pengajar" },
     { id: "id_lembaga", label: "Lembaga", ref: "lembaga", jenis: "tpq" }, { id: "tingkat", label: "Tingkat untuk peringkat paralel (mis. Jilid 1)", opsional: true }] },
   { key: "kamar", label: "Kamar", fields: [{ id: "nama_kamar", label: "Nama Kamar" }, { id: "kapasitas", label: "Kapasitas" }] },
   { key: "mapel", label: "Mata Pelajaran", fields: [{ id: "nama_mapel", label: "Nama Mata Pelajaran" }, { id: "id_lembaga", label: "Untuk lembaga", ref: "lembaga", kosong: "Umum (semua lembaga)" }] },
-  { key: "jenis_ujian", label: "Jenis Ujian", fields: [{ id: "nama", label: "Nama Ujian (mis. PTS Ganjil)" }, { id: "kategori", label: "Kategori", options: ["PTS", "PAS"] }, { id: "semester", label: "Semester", options: ["Ganjil", "Genap"] }] },
+  { key: "jenis_ujian", label: "Jenis Ujian", fields: [{ id: "nama", label: "Nama Ujian (mis. PTS Ganjil)" }, { id: "kategori", label: "Masuk ke komponen nilai", options: "dinamis_kategori" }, { id: "semester", label: "Semester", options: ["Ganjil", "Genap"] }] },
   { key: "jenis_pelanggaran", label: "Jenis Pelanggaran", fields: [{ id: "nama", label: "Nama Pelanggaran" }] },
   { key: "wali", label: "Wali Santri", fields: [{ id: "nama_wali", label: "Nama Wali" }, { id: "hubungan", label: "Hubungan" }, { id: "kontak", label: "No. WhatsApp" }] }
 ];
@@ -808,8 +809,11 @@ function opsiPasang(o) { return Array.isArray(o) ? o : [o, o]; }
 function isianMaster(f, nilai, lembaga, awalan) {
   const id = awalan + f.id;
   let kontrol;
-  if (f.options) {
-    kontrol = `<select id="${id}">${f.options.map(opsiPasang).map(([v, l]) => `<option value="${esc(v)}" ${String(nilai) === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+  if (f.ref === "akun") {
+    kontrol = `<select id="${id}"><option value="">${esc(f.kosong || "")}</option>${(window.__akunRef || []).map(a => `<option value="${esc(a.id)}" ${String(nilai) === String(a.id) ? "selected" : ""}>${esc(a.nama)} (${esc(a.peran)})</option>`).join("")}</select>`;
+  } else if (f.options) {
+    const daftarOpsi = f.options === "dinamis_kategori" ? (window.__kategoriUjian || ["PTS", "PAS"]) : f.options;
+    kontrol = `<select id="${id}">${daftarOpsi.map(opsiPasang).map(([v, l]) => `<option value="${esc(v)}" ${String(nilai) === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
   } else if (f.ref) {
     const daftar = (lembaga || []).filter(l => l.status !== "nonaktif" && (!f.jenis || l.jenis === f.jenis));
     kontrol = `<select id="${id}">${f.kosong ? `<option value="">${esc(f.kosong)}</option>` : ""}${daftar.map(l => `<option value="${esc(l.id)}" ${String(nilai) === String(l.id) ? "selected" : ""}>${esc(l.nama)}</option>`).join("")}</select>`;
@@ -821,7 +825,8 @@ function isianMaster(f, nilai, lembaga, awalan) {
 
 function sel(f, item, lembaga) {
   const nilai = item[f.id];
-  if (f.options) { const p = f.options.map(opsiPasang).find(([v]) => String(v) === String(nilai)); return esc(p ? p[1] : (nilai || "-")); }
+  if (f.ref === "akun") { const a = (window.__akunRef || []).find(x => String(x.id) === String(nilai)); return a ? esc(a.nama) : `<span class="text-muted">-</span>`; }
+  if (f.options) { const daftarOpsi = f.options === "dinamis_kategori" ? (window.__kategoriUjian || ["PTS", "PAS"]) : f.options; const p = daftarOpsi.map(opsiPasang).find(([v]) => String(v) === String(nilai)); return esc(p ? p[1] : (nilai || "-")); }
   if (f.ref) {
     if (!nilai) return f.kosong ? esc(f.kosong) : `${esc(((lembaga || []).find(l => String(l.id) === lembagaDefaultFE(lembaga, f.jenis)) || {}).nama || "-")} <span class="text-muted text-sm">(otomatis)</span>`;
     const l = (lembaga || []).find(x => String(x.id) === String(nilai));
@@ -836,6 +841,11 @@ Router.add("master", async (root, params) => {
   root.innerHTML = Shell("master", `<div class="loading">Memuat...</div>`);
   const main = document.querySelector("main.content");
   const tab = MASTER_TABS.find(t => t.key === activeTab) || MASTER_TABS[0];
+  try { // data pendukung pilihan dinamis (komponen nilai tambahan, akun untuk kepala lembaga)
+    const pg = await Ref.pengaturan();
+    window.__kategoriUjian = ["PTS", "PAS"].concat((pg.komponen_tambahan || []).map(k => k.kode));
+    if (tab.key === "lembaga" && isAdmin) window.__akunRef = ((await Api.call("akun.list", {})).items || []).filter(a => a.peran !== "wali_santri" && a.status !== "nonaktif");
+  } catch (e) { /* tetap tampil dengan pilihan bawaan */ }
 
   main.innerHTML = `
     <div class="flex gap-1 mb-1" style="overflow-x:auto;">
@@ -1122,6 +1132,7 @@ Router.add("akun", async (root, params) => {
             </div>
             <div class="grid-2">
               <div class="field"><label>Nama Lengkap</label><input type="text" id="ak-nama" value="${v("nama")}" required></div>
+              <div class="field"><label>NIP / NIY (opsional)</label><input type="text" id="ak-nip" value="${v("nip")}" maxlength="40" placeholder="tampil di bawah nama pada tanda tangan raport"></div>
               <div class="field"><label>Username</label><input type="text" id="ak-username" value="${v("username")}" required></div>
             </div>
             <div class="grid-2">
@@ -1241,6 +1252,7 @@ Router.add("akun", async (root, params) => {
           const guruPeran = peranSelect.value === "guru_mapel" || peranSelect.value === "pengajar_tpq";
           const dataAkun = {
             nama: document.getElementById("ak-nama").value,
+            nip: document.getElementById("ak-nip").value.trim(),
             username: document.getElementById("ak-username").value,
             peran: peranSelect.value,
             mapel: peranSelect.value === "guru_mapel" ? "" : document.getElementById("ak-mapel").value,

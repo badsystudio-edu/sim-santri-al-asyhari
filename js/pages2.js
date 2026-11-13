@@ -480,6 +480,11 @@ async function renderPengaturanAkademik(container) {
             <div class="field"><label>Bobot PTS %</label><input type="number" id="pa-p" min="0" max="100" value="${p.bobot_pts}" ${isAdmin ? "" : "disabled"}></div>
             <div class="field"><label>Bobot PAS %</label><input type="number" id="pa-a" min="0" max="100" value="${p.bobot_pas}" ${isAdmin ? "" : "disabled"}></div>
           </div>
+          <div class="field"><label>Komponen Nilai Tambahan (opsional)</label>
+            <div class="text-muted text-sm mb-1">Tambahkan komponen di luar Harian/PTS/PAS (mis. Ujian Praktik, Tahfidz) dengan bobotnya sendiri. Total semua bobot harus 100. Setelah dibuat, komponen ini bisa dipilih pada <b>Data Master &rarr; Jenis Ujian</b> dan tampil sebagai kolom di raport.</div>
+            <div id="pa-komp"></div>
+            ${isAdmin ? `<button type="button" class="btn btn-secondary btn-sm" id="pa-komp-tambah">+ Tambah Komponen</button>` : ""}
+            <div id="pa-total" class="text-sm mt-1"></div></div>
           <div class="field"><label>Kunci input guru pada hari Minggu &amp; hari libur</label>
             <select id="pa-blokir" ${isAdmin ? "" : "disabled"}><option value="ya" ${p.blokir_hari_libur !== "tidak" ? "selected" : ""}>Aktif</option><option value="tidak" ${p.blokir_hari_libur === "tidak" ? "selected" : ""}>Nonaktif</option></select>
             <div class="text-muted text-sm mt-1">Jika Aktif, presensi dan jurnal oleh guru ditolak pada hari Minggu dan pada agenda berkategori <b>Libur</b> (admin selalu boleh; blokir bisa dimatikan per hari libur di Kalender).</div></div>
@@ -487,6 +492,38 @@ async function renderPengaturanAkademik(container) {
           <div id="pa-pesan" class="mt-1"></div>
         </form>
       </div>`;
+    const komp = (p.komponen_tambahan || []).map(k => Object.assign({}, k));
+    const gambarKomp = () => {
+      document.getElementById("pa-komp").innerHTML = komp.length === 0 ? `<div class="text-muted text-sm">Belum ada komponen tambahan.</div>` : komp.map((k, i) => `
+        <div class="komp-baris">
+          <input type="text" data-i="${i}" data-f="nama" value="${esc(k.nama)}" placeholder="Nama (mis. Ujian Praktik)" ${isAdmin ? "" : "disabled"}>
+          <input type="text" data-i="${i}" data-f="kode" value="${esc(k.kode)}" placeholder="Kode" maxlength="12" style="max-width:96px;" ${isAdmin ? "" : "disabled"}>
+          <input type="number" data-i="${i}" data-f="bobot" value="${esc(k.bobot)}" min="0" max="100" style="max-width:76px;" ${isAdmin ? "" : "disabled"}>
+          <label class="komp-pts"><input type="checkbox" data-i="${i}" data-f="masuk_pts" ${k.masuk_pts === "ya" ? "checked" : ""} ${isAdmin ? "" : "disabled"}> ikut raport PTS</label>
+          ${isAdmin ? `<button type="button" class="btn btn-danger btn-sm" data-hapus="${i}">✕</button>` : ""}
+        </div>`).join("");
+      const total = ["pa-h", "pa-p", "pa-a"].reduce((s, id) => s + (Number(document.getElementById(id).value) || 0), 0) + komp.reduce((s, k) => s + (Number(k.bobot) || 0), 0);
+      document.getElementById("pa-total").innerHTML = `Total bobot: <b style="color:${Math.abs(total - 100) < 0.001 ? "#047857" : "#B91C1C"};">${total}%</b> ${Math.abs(total - 100) < 0.001 ? "✓" : "(harus 100)"}`;
+    };
+    gambarKomp();
+    ["pa-h", "pa-p", "pa-a"].forEach(id => document.getElementById(id).addEventListener("input", gambarKomp));
+    document.getElementById("pa-komp").addEventListener("input", (e) => {
+      const t = e.target; if (!t || !t.dataset || t.dataset.f === undefined) return;
+      const k = komp[Number(t.dataset.i)]; if (!k) return;
+      k[t.dataset.f] = t.dataset.f === "masuk_pts" ? (t.checked ? "ya" : "tidak") : t.value;
+      if (t.dataset.f === "bobot") gambarTotalSaja();
+    });
+    function gambarTotalSaja() {
+      const total = ["pa-h", "pa-p", "pa-a"].reduce((s, id) => s + (Number(document.getElementById(id).value) || 0), 0) + komp.reduce((s, k) => s + (Number(k.bobot) || 0), 0);
+      document.getElementById("pa-total").innerHTML = `Total bobot: <b style="color:${Math.abs(total - 100) < 0.001 ? "#047857" : "#B91C1C"};">${total}%</b> ${Math.abs(total - 100) < 0.001 ? "✓" : "(harus 100)"}`;
+    }
+    document.getElementById("pa-komp").addEventListener("click", (e) => {
+      const t = e.target && e.target.closest ? e.target.closest("[data-hapus]") : null;
+      if (!t) return;
+      komp.splice(Number(t.dataset.hapus), 1); gambarKomp();
+    });
+    const tambah = document.getElementById("pa-komp-tambah");
+    if (tambah) tambah.addEventListener("click", () => { komp.push({ kode: "", nama: "", bobot: 0, masuk_pts: "ya" }); gambarKomp(); });
     if (isAdmin) {
       document.getElementById("form-akademik").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -496,7 +533,7 @@ async function renderPengaturanAkademik(container) {
         try {
           await Api.call("pengaturan.save", { data: {
             tahun_ajaran: document.getElementById("pa-tahun").value.trim(), semester_aktif: document.getElementById("pa-semester").value,
-            bobot_harian: document.getElementById("pa-h").value, bobot_pts: document.getElementById("pa-p").value, bobot_pas: document.getElementById("pa-a").value, blokir_hari_libur: document.getElementById("pa-blokir").value
+            bobot_harian: document.getElementById("pa-h").value, bobot_pts: document.getElementById("pa-p").value, bobot_pas: document.getElementById("pa-a").value, blokir_hari_libur: document.getElementById("pa-blokir").value, komponen_tambahan: komp.map(k => ({ kode: k.kode, nama: k.nama, bobot: Number(k.bobot) || 0, masuk_pts: k.masuk_pts }))
           } });
           RefCache.invalidate("pengaturan");
           pesan.innerHTML = `<div class="alert alert-success">Pengaturan disimpan.</div>`;
@@ -550,7 +587,7 @@ Router.add("nilai", async (root) => {
             <select id="nl-jenis"><option value="harian">Nilai Harian</option>${jenisUjian.map(u => `<option value="ujian|${esc(u.id)}">${esc(u.nama)}</option>`).join("")}</select></div>
           <div class="field"><label>Tanggal</label><input type="date" id="nl-tanggal" value="${tglHariIni()}"></div>
         </div>
-        <div class="field" id="nl-nama-wrap"><label>Nama Penilaian (nilai harian bisa ditambah sendiri)</label><input type="text" id="nl-nama" value="Ulangan Harian" placeholder="mis. Ulangan Bab 2, Tugas 1, Kuis"></div>
+        <div class="field" id="nl-nama-wrap"><label>Judul Bab / Penilaian (tambah sebanyak bab yang ada, tiap bab satu judul)</label><input type="text" id="nl-nama" value="Ulangan Harian" placeholder="mis. Bab 2 Pecahan, Tugas 1, Kuis"></div>
         <div id="nl-daftar" class="mt-1"></div>` : ""}
       </div>
       <div class="card"><h3>Riwayat Nilai</h3><div id="nl-riwayat"><div class="loading">Memuat...</div></div></div>`;
@@ -622,23 +659,48 @@ Router.add("nilai", async (root) => {
       if (!p.grupId || !p.mapel) { wadah.innerHTML = `<div class="alert alert-error">Pilih kelas/kelompok dan mata pelajaran dulu.</div>`; return; }
       if (p.jenis === "harian" && !p.namaPenilaian) { wadah.innerHTML = `<div class="alert alert-error">Isi nama penilaian (mis. Ulangan Bab 2).</div>`; return; }
       const nama = p.jenis === "ujian" ? (jenisUjian.find(u => u.id === p.idUjian) || {}).nama : p.namaPenilaian;
-      const ada = {};
+      const ada = {}, adaCatatan = {};
       barisNilai.forEach(r => {
-        if (r.mapel === p.mapel && r.jenis === p.jenis && r.nama_penilaian === nama && (p.jenis === "ujian" || r.tanggal === p.tanggal)) ada[String(r.id_santri)] = r.nilai;
+        if (r.mapel === p.mapel && r.jenis === p.jenis && r.nama_penilaian === nama && (p.jenis === "ujian" || r.tanggal === p.tanggal)) { ada[String(r.id_santri)] = r.nilai; adaCatatan[String(r.id_santri)] = r.catatan || ""; }
       });
       const bidang = p.tipe === "kelompok" ? "id_kelompok" : "id_kelas";
       const roster = santriAktif.filter(s => String(s[bidang]) === String(p.grupId)).sort((a, b) => String(a.nama).localeCompare(String(b.nama)));
       wadah.innerHTML = roster.length === 0 ? `<div class="empty-state">Belum ada santri pada ${p.tipe === "kelompok" ? "kelompok" : "kelas"} ini.</div>` : `
         <div class="text-muted text-sm mb-1">${esc(p.mapel)} · ${esc(nama)} · Kosongkan nilai santri yang belum dinilai. Nilai yang sudah ada otomatis terisi dan akan diperbarui.</div>
-        <div class="table-wrap"><table class="data-table"><tr><th>Nama</th><th style="width:110px;">Nilai (0-100)</th></tr>
-          ${roster.map(s => `<tr><td>${esc(s.nama)}</td><td><input type="number" step="0.1" min="0" max="100" inputmode="decimal" data-santri="${esc(s.id)}" value="${ada[String(s.id)] !== undefined ? esc(ada[String(s.id)]) : ""}" style="height:38px;"></td></tr>`).join("")}
+        <div class="table-wrap"><table class="data-table"><tr><th>Nama</th><th style="width:100px;">Nilai (0-100)</th><th>Catatan (opsional)</th></tr>
+          ${roster.map(s => `<tr><td>${esc(s.nama)}</td><td><input type="number" step="0.1" min="0" max="100" inputmode="decimal" data-santri="${esc(s.id)}" value="${ada[String(s.id)] !== undefined ? esc(ada[String(s.id)]) : ""}" style="height:38px;"></td><td><input type="text" maxlength="300" data-catatan="${esc(s.id)}" value="${esc(adaCatatan[String(s.id)] || "")}" placeholder="catatan untuk bab ini" style="height:38px;min-width:140px;"></td></tr>`).join("")}
         </table></div>
-        <button class="btn btn-primary btn-block mt-2" id="nl-simpan">Simpan Nilai</button><div id="nl-pesan" class="mt-1"></div>`;
+        <button class="btn btn-primary btn-block mt-2" id="nl-simpan">Simpan Nilai</button><div id="nl-pesan" class="mt-1"></div>
+        <div class="card mt-2" id="nl-cm"><h3>Catatan Mapel per Santri</h3>
+          <div class="text-muted text-sm mb-1">Catatan untuk <b>seluruh mata pelajaran ini</b> (bukan per bab); tampil di bawah baris mapel pada raport.</div>
+          <div class="table-wrap"><table class="data-table"><tr><th>Nama</th><th>Catatan mapel</th></tr>
+            ${roster.map(s => `<tr><td>${esc(s.nama)}</td><td><input type="text" maxlength="500" data-cm="${esc(s.id)}" placeholder="catatan mapel" style="height:38px;min-width:180px;"></td></tr>`).join("")}</table></div>
+          <button class="btn btn-secondary btn-block mt-1" id="nl-cm-simpan">Simpan Catatan Mapel</button><div id="nl-cm-pesan" class="mt-1"></div></div>`;
+      // catatan mapel: isi dari server, simpan terpisah
+      (async () => {
+        try {
+          const cm = await Api.call("catatanmapel.list", Object.assign(kunciGrup(p), { mapel: p.mapel, semester: semesterTerpilih() }));
+          const peta = {}; (cm.items || []).forEach(i => { peta[i.id_santri] = i.catatan; });
+          wadah.querySelectorAll("input[data-cm]").forEach(i => { i.value = peta[i.dataset.cm] || ""; });
+        } catch (e) { /* abaikan */ }
+      })();
+      const simpanCm = el("nl-cm-simpan");
+      if (simpanCm) simpanCm.addEventListener("click", async () => {
+        simpanCm.disabled = true;
+        const items = Array.from(wadah.querySelectorAll("input[data-cm]")).map(i => ({ id_santri: i.dataset.cm, catatan: i.value }));
+        try {
+          await Api.call("catatanmapel.simpan", Object.assign(kunciGrup(p), { mapel: p.mapel, semester: semesterTerpilih(), items }));
+          el("nl-cm-pesan").innerHTML = `<div class="alert alert-success">Catatan mapel tersimpan.</div>`;
+        } catch (err) { el("nl-cm-pesan").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+        simpanCm.disabled = false;
+      });
       const simpan = el("nl-simpan");
       if (!simpan) return;
       simpan.addEventListener("click", async () => {
         simpan.disabled = true; simpan.textContent = "Menyimpan...";
-        const items = Array.from(wadah.querySelectorAll("input[data-santri]")).filter(i => i.value !== "").map(i => ({ id_santri: i.dataset.santri, nilai: i.value }));
+        const catatanPer = {};
+        Array.from(wadah.querySelectorAll("input[data-catatan]")).forEach(i => { catatanPer[i.dataset.catatan] = i.value; });
+        const items = Array.from(wadah.querySelectorAll("input[data-santri]")).filter(i => i.value !== "").map(i => ({ id_santri: i.dataset.santri, nilai: i.value, catatan: catatanPer[i.dataset.santri] || "" }));
         try {
           const hasil = await Api.call("nilai.saveBatch", Object.assign(kunciGrup(p), { mapel: p.mapel, jenis: p.jenis, id_ujian: p.idUjian, nama_penilaian: p.namaPenilaian, tanggal: p.tanggal, items }));
           const pesanOk = `<div class="alert alert-success">${hasil.tersimpan} nilai tersimpan (semester ${esc(hasil.semester)}, ${esc(hasil.tahun_ajaran)}). Wali santri diberi tahu otomatis.</div>`;
@@ -684,10 +746,37 @@ function kotakRingkasFE(judul, baris) {
   return `<div class="ringkas-kotak"><h4>${judul}</h4><dl>${baris.map(b => `<dt>${b[0]}</dt><dd>${b[1]}</dd>`).join("")}</dl></div>`;
 }
 
+function angkaFE(n) { return n === null || n === undefined ? "-" : String(n).replace(".", ","); }
+function predFE(label) { return `<span class="${/[\u0600-\u06FF]/.test(String(label)) ? "arab" : ""}">${esc(label)}</span>`; }
+
+function skalaFE(r) {
+  return r.skala.map((s, i) => `${predFE(s.label)} ${i === 0 ? "≥ " + s.min : s.min + "–&lt;" + r.skala[i - 1].min}${s.ket ? " (" + esc(s.ket) + ")" : ""}`).join(" · ");
+}
+
+function rincianBabFE(b, kolom) {
+  const bagian = [];
+  if (b.bab && b.bab.length) {
+    let t = b.bab.map(x => `${esc(x.judul || "Penilaian")} (${angkaFE(x.nilai)})`).join(" · ");
+    if (b.bab.length > 1) t += ` — Jumlah <b>${angkaFE(b.jumlah_bab)}</b>, Rata-rata <b>${angkaFE(b.harian)}</b>`;
+    bagian.push("Rincian: " + t);
+    const cat = b.bab.filter(x => x.catatan).map(x => `${esc(x.judul || "Penilaian")}: ${esc(x.catatan)}`);
+    if (cat.length) bagian.push("Catatan bab: " + cat.join("; "));
+  }
+  if (b.catatan_mapel) bagian.push("Catatan: " + esc(b.catatan_mapel));
+  return bagian.length ? `<tr class="rincian-bab"><td colspan="${kolom}">${bagian.join("<br>")}</td></tr>` : "";
+}
+
 function hasilRaportHtml(r) {
-  const f = (n) => n === null || n === undefined ? "-" : String(n).replace(".", ",");
   const peringkat = barisPeringkatFE(r).map(b => [esc(b[0]), esc(b[1])]);
   const adaPeringkat = peringkat.length > 0;
+  const catatanKotak = r.tampil.catatan ? kotakRingkasFE("Catatan " + esc(r.teks.jabatan_wali_kelas), [["", r.catatan_walas ? esc(r.catatan_walas).replace(/\n/g, "<br>") : "-"]]) : "";
+  const tambahan = (r.tambahan || []).map(b => {
+    let sub = "";
+    return `<div class="tambahan-kotak"><h4>${esc(b.judul)}${b.tipe === "kategori" ? ` <span class="text-muted">(${b.pilihan.map(esc).join(" / ")})</span>` : ""}</h4><table class="data-table">
+      ${b.rows.map(x => { let h = ""; if (x.sub && x.sub !== sub) { sub = x.sub; h = `<tr><th colspan="2" style="text-align:left;">${esc(x.sub)}</th></tr>`; } return `${h}<tr><td>${esc(x.uraian)}</td><td style="width:90px;text-align:center;"><b>${esc(x.teks)}</b></td></tr>`; }).join("")}</table></div>`;
+  }).join("");
+  const kehadiran = r.kehadiran ? kotakRingkasFE("Kehadiran" + (r.kehadiran.mode === "manual" ? " (diisi manual)" : ""), [["Sakit", `${r.kehadiran.sakit} hari`], ["Izin", `${r.kehadiran.izin} hari`], ["Alpa", `${r.kehadiran.alpa} hari`], ["Hadir", `${r.kehadiran.hadir} hari${r.kehadiran.persen !== null ? ` (${r.kehadiran.persen}%)` : ""}`]]) : "";
+  const bawah = (kehadiran || catatanKotak) ? `<div class="ringkas-raport">${kehadiran}${catatanKotak}</div>` : "";
   if (r.jenis === "hafalan") {
     const h = r.hafalan, k = h.kehadiran;
     return `<div class="card">
@@ -703,22 +792,25 @@ function hasilRaportHtml(r) {
           ["Halaman Setoran Baru", `${h.halaman_baru} halaman`], ["Juz Tertinggi", h.juz_tertinggi ? `Juz ${h.juz_tertinggi}` : "-"],
           ["Kehadiran Halaqah", k.total ? `${k.Hadir} hadir dari ${k.total} pertemuan (${k.persen}%)` : "-"]].concat(peringkat))}
         ${kotakRingkasFE("Keterangan", [["Halaman", "Halaman mushaf (1–604)"], ["Sakit / Izin / Alpa", k.total ? `${k.Sakit} / ${k.Izin} / ${k.Alpa}` : "-"]].concat(adaPeringkat ? [["Peringkat", esc(dasarPeringkatFE(r))]] : []))}
-      </div></div>`;
+      </div>${catatanKotak ? `<div class="ringkas-raport">${catatanKotak}</div>` : ""}${tambahan}</div>`;
   }
-  const sem = r.jenis === "semester";
+  const sem = r.jenis === "semester", komp = r.komponen || [], terb = r.tampil.terbilang;
+  const kolom = 6 + (sem ? 1 : 0) + komp.length + (terb === "semua" ? 1 : 0);
+  const tTerb = (t) => terb !== "tidak" && t ? `<br><small class="terbilang">${esc(t)}</small>` : "";
+  const bobotTeks = `Harian ${r.bobot.harian}%, PTS ${r.bobot.pts}%${sem ? `, PAS ${r.bobot.pas}%` : ""}${komp.map(k => `, ${esc(k.nama)} ${k.bobot}%`).join("")}`;
   return `<div class="card">
     <h3>${esc(r.teks.judul)} — ${esc(r.semester)} ${esc(r.tahun_ajaran)}</h3>
     <div class="text-sm mb-1"><b>${esc(r.santri.nama)}</b> · NIS ${esc(r.santri.nis)} · ${esc(r.santri.grup_label)} ${esc(r.santri.kelas)} · ${esc(r.lembaga.nama)}</div>
     ${r.rows.length === 0 ? `<div class="empty-state">Belum ada nilai pada semester &amp; tahun ajaran ini.</div>` : `
     <div class="table-wrap"><table class="data-table">
-      <tr><th>Mata Pelajaran</th><th>Harian</th><th>PTS</th>${sem ? "<th>PAS</th>" : ""}<th>Nilai Akhir</th><th>Predikat</th></tr>
-      ${r.rows.map(b => `<tr><td>${esc(b.mapel)}</td><td>${f(b.harian)}</td><td>${f(b.pts)}</td>${sem ? `<td>${f(b.pas)}</td>` : ""}<td><b>${f(b.akhir)}</b></td><td>${esc(b.predikat)}</td></tr>`).join("")}
+      <tr><th>Mata Pelajaran</th><th>Harian</th><th>PTS</th>${sem ? "<th>PAS</th>" : ""}${komp.map(k => `<th>${esc(k.nama)}</th>`).join("")}<th>Nilai Akhir</th>${terb === "semua" ? "<th>Terbilang</th>" : ""}<th>Predikat</th></tr>
+      ${r.rows.map(b => `<tr><td>${esc(b.mapel)}</td><td>${angkaFE(b.harian)}</td><td>${angkaFE(b.pts)}</td>${sem ? `<td>${angkaFE(b.pas)}</td>` : ""}${komp.map(k => `<td>${angkaFE(b.komponen[k.kode])}</td>`).join("")}<td><b>${angkaFE(b.akhir)}</b></td>${terb === "semua" ? `<td><small class="terbilang">${esc(b.akhir_terbilang)}</small></td>` : ""}<td>${predFE(b.predikat)}</td></tr>${r.tampil.bab ? rincianBabFE(b, kolom) : (b.catatan_mapel ? rincianBabFE({ bab: [], catatan_mapel: b.catatan_mapel }, kolom) : "")}`).join("")}
     </table></div>
     <div class="ringkas-raport">
-      ${kotakRingkasFE("Ringkasan Hasil", [["Jumlah Nilai Akhir", f(r.jumlah)], ["Rata-rata Nilai Akhir", f(r.rata_rata)], ["Predikat", esc(r.predikat || "-")]].concat(peringkat))}
-      ${kotakRingkasFE("Keterangan", [["Bobot penilaian", `Harian ${r.bobot.harian}%, PTS ${r.bobot.pts}%${sem ? `, PAS ${r.bobot.pas}%` : ""}`], ["Predikat", "A ≥ 90 · B ≥ 80 · C ≥ 70 · D &lt; 70"]]
-        .concat(adaPeringkat ? [["Peringkat", esc(dasarPeringkatFE(r))]] : []).concat([["Tanda \"-\"", "Belum ada nilai"]]))}
+      ${kotakRingkasFE("Ringkasan Hasil", [["Jumlah Nilai Akhir", angkaFE(r.jumlah) + tTerb(r.jumlah_terbilang)], ["Rata-rata Nilai Akhir", angkaFE(r.rata_rata) + tTerb(r.rata_rata_terbilang)], ["Predikat", predFE(r.predikat) + (r.predikat_ket ? " — " + esc(r.predikat_ket) : "")]].concat(peringkat))}
+      ${kotakRingkasFE("Keterangan", [["Bobot penilaian", bobotTeks], ["Predikat", skalaFE(r)]].concat(adaPeringkat ? [["Peringkat", esc(dasarPeringkatFE(r))]] : []).concat([["Tanda \"-\"", "Belum ada nilai"]]))}
     </div>`}
+    ${bawah}${tambahan}
   </div>`;
 }
 

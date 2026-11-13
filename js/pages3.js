@@ -552,13 +552,15 @@ async function renderLatarAplikasi(container) {
 async function renderPengaturanRaport(container) {
   if (!Auth.boleh("admin")) { container.innerHTML = ""; return; }
   container.innerHTML = `<div class="card"><div class="loading">Memuat pengaturan raport...</div></div>`;
-  let set, mapelMaster, kop = { sekolah: "", yayasan: "" };
+  let set, mapelMaster, kop = { sekolah: "", yayasan: "" }, akunPilih = [];
   try {
     const hasil = await Promise.all([
       Api.call("raportset.get", {}), Ref.mapel(),
       Api.call("kop.get", { jenis: "sekolah" }).catch(() => ({ data_url: "" })),
-      Api.call("kop.get", { jenis: "yayasan" }).catch(() => ({ data_url: "" }))
+      Api.call("kop.get", { jenis: "yayasan" }).catch(() => ({ data_url: "" })),
+      Api.call("akun.list", {}).catch(() => ({ items: [] }))
     ]);
+    akunPilih = (hasil[4].items || []).filter(a => a.peran !== "wali_santri" && a.status !== "nonaktif");
     set = hasil[0]; mapelMaster = (hasil[1].items || []).map(m => m.nama_mapel);
     kop.sekolah = hasil[2].data_url || ""; kop.yayasan = hasil[3].data_url || "";
   } catch (err) { tampilkanGalat(container, err); return; }
@@ -597,7 +599,10 @@ async function renderPengaturanRaport(container) {
     <div class="card">
       <h3>Raport &mdash; Penandatangan</h3>
       <div class="text-muted text-sm mb-1">Urutan tanda tangan di raport (kiri ke kanan): <b>Pengasuh Pondok Pesantren, Kepala Sekolah, Wali Murid</b>. Nama terisi otomatis; nama <b>Wali Murid</b> diambil dari data wali santri (Edit Santri &rarr; Data Wali).</div>
-      <div class="field"><label>Nama Pengasuh Pondok Pesantren</label><input type="text" id="rs-pengasuh" value="${esc(set.nama_pengasuh)}" maxlength="120" placeholder="mis. KH. Ahmad Asyhari"></div>
+      <div class="field"><label>Pengasuh (pilih akun &mdash; nama &amp; NIP tampil otomatis di raport)</label>
+        <select id="rs-id-pengasuh"><option value="">(belum dipilih &mdash; pakai isian manual di bawah)</option>${akunPilih.map(a => `<option value="${esc(a.id)}" ${String(set.id_pengasuh) === String(a.id) ? "selected" : ""}>${esc(a.nama)} (${esc(a.peran)})</option>`).join("")}</select>
+        <div class="text-muted text-sm mt-1">Kepala sekolah/TPQ dipilih per lembaga di <b>Data Master &rarr; Lembaga</b>; wali kelas otomatis dari penugasan akun; NIP diisi di <b>Kelola Akun</b>.</div></div>
+      <div class="field"><label>Nama Pengasuh (manual, hanya dipakai bila akun belum dipilih)</label><input type="text" id="rs-pengasuh" value="${esc(set.nama_pengasuh)}" maxlength="120" placeholder="mis. KH. Ahmad Asyhari"></div>
       <div class="field"><label>Nama Kepala Sekolah</label><input type="text" id="rs-kepsek" value="${esc(set.nama_kepala_sekolah)}" maxlength="120" placeholder="mis. Ust. Budi Santoso, S.Pd"></div>
       <div class="grid-2">
         <div class="field"><label>NIP/NIY Kepala Sekolah (opsional)</label><input type="text" id="rs-nip" value="${esc(set.nip_kepala_sekolah)}" maxlength="120"></div>
@@ -650,7 +655,7 @@ async function renderPengaturanRaport(container) {
   });
   el("rs-simpan-ttd").addEventListener("click", async () => {
     try {
-      await Api.call("raportset.simpan", { data: { nama_pengasuh: el("rs-pengasuh").value, nama_kepala_sekolah: el("rs-kepsek").value, nip_kepala_sekolah: el("rs-nip").value, tempat_ttd: el("rs-tempat").value } });
+      await Api.call("raportset.simpan", { data: { id_pengasuh: el("rs-id-pengasuh").value, nama_pengasuh: el("rs-pengasuh").value, nama_kepala_sekolah: el("rs-kepsek").value, nip_kepala_sekolah: el("rs-nip").value, tempat_ttd: el("rs-tempat").value } });
       pesan("rs-pesan-ttd", true, "Data penandatangan disimpan.");
     } catch (err) { pesan("rs-pesan-ttd", false, err.message); }
   });
@@ -844,12 +849,37 @@ async function renderJenisRaport(container) {
   document.getElementById("jr-tambah").addEventListener("click", () => bukaEditorJenisRaport(null, lembaga, container));
 }
 
+const SKALA_BAWAAN = [{ min: 90, label: "A", ket: "Sangat Baik" }, { min: 80, label: "B", ket: "Baik" }, { min: 70, label: "C", ket: "Cukup" }, { min: 0, label: "D", ket: "Kurang" }];
+const SKALA_ARAB = [{ min: 90, label: "ممتاز", ket: "Mumtaz" }, { min: 80, label: "جيد جدا", ket: "Jayyid Jiddan" }, { min: 70, label: "جيد", ket: "Jayyid" }, { min: 0, label: "مقبول", ket: "Maqbul" }];
+
+function bacaJsonFE(teks, cadangan) {
+  try { const v = JSON.parse(teks); return (v === null || v === undefined) ? cadangan : v; } catch (e) { return cadangan; }
+}
+
 function bukaEditorJenisRaport(jr, lembaga, container) {
   const baru = !jr;
   const d = jr || { nama: "", id_lembaga: (lembaga[0] || {}).id, sumber: "semester", judul: "", engine: "bawaan", template_url: "", peringkat_kelas: "ya", peringkat_paralel: "ya",
-    jabatan_pengasuh: "", jabatan_kepsek: "", jabatan_wali: "", nama_pengasuh: "", nama_kepsek: "", nip_kepsek: "", status: "aktif" };
-  const v = (k) => esc(d[k] || "");
+    jabatan_pengasuh: "", jabatan_kepsek: "", jabatan_wali: "", nama_pengasuh: "", nama_kepsek: "", nip_kepsek: "", status: "aktif",
+    peringkat_kelas_maks: 0, peringkat_paralel_maks: 0, skala_predikat: "", tanggal_cetak_mode: "otomatis", tanggal_cetak: "", terbilang: "ringkasan", tampil_bab: "ya", tampil_kehadiran: "ya", tampil_catatan: "ya", bagian_tambahan: "" };
+  const v = (k) => esc(d[k] === undefined || d[k] === null ? "" : d[k]);
   const teks = (id, label, nilai, ket) => `<div class="field"><label>${label}</label><input type="text" id="${id}" value="${nilai}" maxlength="160" placeholder="${esc(ket || "")}"></div>`;
+
+  // ---- status lokal: skala predikat & pohon bagian tambahan
+  let skala = (() => { const s = bacaJsonFE(d.skala_predikat, []); return (Array.isArray(s) && s.length ? s : SKALA_BAWAAN).map(x => Object.assign({}, x)); })();
+  const salin = (n, level) => {
+    const h = { judul: n.judul || "", anak: (n.anak || []).map(a => salin(a, level + 1)) };
+    if (level === 1) { h.tipe = n.tipe || "kategori"; h._pil = (n.pilihan && n.pilihan.length ? n.pilihan : ["Baik", "Cukup", "Kurang"]).join(", "); }
+    return h;
+  };
+  let bagian = (() => { const b = bacaJsonFE(d.bagian_tambahan, []); return Array.isArray(b) ? b.map(x => salin(x, 1)) : []; })();
+  const petaKeServer = (n, level) => {
+    const h = { judul: n.judul };
+    if (level === 1) { h.tipe = n.tipe; if (n.tipe === "kategori") h.pilihan = String(n._pil || "").split(",").map(s => s.trim()).filter(Boolean); }
+    if (n.anak && n.anak.length) h.anak = n.anak.map(a => petaKeServer(a, level + 1));
+    return h;
+  };
+  const simpul = (jalur) => { const p = String(jalur).split(".").map(Number); let n = bagian[p[0]]; for (let i = 1; i < p.length && n; i++) n = (n.anak || [])[p[i]]; return { p, n }; };
+
   const m = bukaModal(`<span>🧾</span> ${baru ? "Tambah" : "Ubah"} Jenis Raport`, `
     <form id="jr-form" onsubmit="return false;">
       ${teks("jr-nama", "Nama jenis raport", v("nama"), "mis. Raport PTS SMP")}
@@ -858,17 +888,38 @@ function bukaEditorJenisRaport(jr, lembaga, container) {
         <div class="field"><label>Isi raport (sumber data)</label><select id="jr-sumber">${Object.keys(SUMBER_LABEL).map(k => `<option value="${k}" ${d.sumber === k ? "selected" : ""}>${esc(SUMBER_LABEL[k])}</option>`).join("")}</select></div>
       </div>
       ${teks("jr-judul", "Judul di raport", v("judul"), "kosongkan = judul bawaan")}
+      <div class="grid-2">
+        <div class="field"><label>Tanggal cetak raport</label><select id="jr-tgl-mode"><option value="otomatis" ${d.tanggal_cetak_mode !== "tetap" ? "selected" : ""}>Otomatis (hari saat dicetak)</option><option value="tetap" ${d.tanggal_cetak_mode === "tetap" ? "selected" : ""}>Tetap (tanggal pembagian raport)</option></select></div>
+        <div class="field"><label>Tanggal tetap</label><input type="date" id="jr-tgl" value="${v("tanggal_cetak")}"></div>
+      </div>
       <h4 class="jr-sub">Tulisan jabatan di tanda tangan (kiri → kanan)</h4>
       ${teks("jr-jab-pengasuh", "1. Jabatan pertama", v("jabatan_pengasuh"), "Pengasuh Pondok Pesantren")}
       ${teks("jr-jab-kepsek", "2. Jabatan kedua", v("jabatan_kepsek"), "Kepala Sekolah / Kepala TPQ")}
       ${teks("jr-jab-wali", "3. Jabatan ketiga", v("jabatan_wali"), "Wali Murid")}
       <h4 class="jr-sub">Nama penandatangan khusus raport ini</h4>
-      <div class="text-muted text-sm mb-1">Kosongkan untuk memakai nama umum di bagian "Penandatangan" di bawah. Nama Wali Murid selalu otomatis dari data wali santri.</div>
-      ${teks("jr-nama-pengasuh", "Nama Pengasuh", v("nama_pengasuh"), "")}
-      <div class="grid-2">${teks("jr-nama-kepsek", "Nama Kepala", v("nama_kepsek"), "")}${teks("jr-nip-kepsek", "NIP/NIY Kepala", v("nip_kepsek"), "")}</div>
+      <div class="text-muted text-sm mb-1">Nama otomatis diambil dari akun (pengasuh: Pengaturan Raport; kepala: Data Master &rarr; Lembaga; wali kelas: penugasan akun; wali murid: data wali santri). Isi di bawah hanya bila ingin menggantinya khusus untuk raport ini.</div>
+      ${teks("jr-nama-pengasuh", "Nama Pengasuh (manual)", v("nama_pengasuh"), "")}
+      <div class="grid-2">${teks("jr-nama-kepsek", "Nama Kepala (manual)", v("nama_kepsek"), "")}${teks("jr-nip-kepsek", "NIP/NIY Kepala (manual)", v("nip_kepsek"), "")}</div>
       <h4 class="jr-sub">Peringkat yang ditampilkan</h4>
       <label class="jr-cek"><input type="checkbox" id="jr-p-kelas" ${d.peringkat_kelas !== "tidak" ? "checked" : ""}> Peringkat kelas / kelompok</label>
       <label class="jr-cek"><input type="checkbox" id="jr-p-paralel" ${d.peringkat_paralel !== "tidak" ? "checked" : ""}> Peringkat paralel (antar kelas pada tingkat yang sama &mdash; isi "Tingkat" di Data Master)</label>
+      <div class="grid-2">
+        <div class="field"><label>Peringkat kelas: tampilkan hanya sampai ke-</label><input type="number" id="jr-maks-kelas" min="0" max="999" value="${esc(d.peringkat_kelas_maks || 0)}"><div class="text-muted text-sm">0 = semua. Mis. 3 = hanya peringkat 1, 2, 3 yang tercetak.</div></div>
+        <div class="field"><label>Peringkat paralel: tampilkan hanya sampai ke-</label><input type="number" id="jr-maks-paralel" min="0" max="999" value="${esc(d.peringkat_paralel_maks || 0)}"><div class="text-muted text-sm">0 = semua.</div></div>
+      </div>
+      <h4 class="jr-sub">Predikat nilai (khusus raport ini)</h4>
+      <div class="text-muted text-sm mb-1">Ketik sendiri isi predikatnya: huruf (A, B, C), kata, atau <b>istilah Arab</b> (mis. ممتاز). Nilai ≥ batas mendapat predikat itu. Tingkat terendah harus berbatas 0.</div>
+      <div id="jr-skala"></div>
+      <div class="flex gap-1" style="flex-wrap:wrap;"><button type="button" class="btn btn-secondary btn-sm" id="jr-skala-tambah">+ Tingkat</button><button type="button" class="btn btn-secondary btn-sm" id="jr-skala-bawaan">Skala A–D</button><button type="button" class="btn btn-secondary btn-sm" id="jr-skala-arab">Contoh istilah Arab</button></div>
+      <h4 class="jr-sub">Isi tambahan pada raport</h4>
+      <div class="field"><label>Terbilang otomatis (nilai ditulis dengan kata)</label><select id="jr-terbilang"><option value="tidak" ${d.terbilang === "tidak" ? "selected" : ""}>Tidak ditampilkan</option><option value="ringkasan" ${d.terbilang !== "tidak" && d.terbilang !== "semua" ? "selected" : ""}>Jumlah &amp; rata-rata saja</option><option value="semua" ${d.terbilang === "semua" ? "selected" : ""}>Tiap mata pelajaran + ringkasan</option></select></div>
+      <label class="jr-cek"><input type="checkbox" id="jr-bab" ${d.tampil_bab !== "tidak" ? "checked" : ""}> Rincian bab per mapel (nilai tiap bab, jumlah, rata-rata, catatan)</label>
+      <label class="jr-cek"><input type="checkbox" id="jr-kehadiran" ${d.tampil_kehadiran !== "tidak" ? "checked" : ""}> Kehadiran (otomatis atau diisi manual oleh wali kelas/admin)</label>
+      <label class="jr-cek"><input type="checkbox" id="jr-catatan" ${d.tampil_catatan !== "tidak" ? "checked" : ""}> Catatan wali kelas</label>
+      <h4 class="jr-sub">Bagian tambahan (opsional)</h4>
+      <div class="text-muted text-sm mb-1">Tambahkan bagian sendiri, mis. <b>Sikap dan Kepribadian</b> &rarr; sub <b>Sopan Santun</b> &rarr; uraian <b>Sikap terhadap guru</b>. Penilaian tiap bagian: <b>kategori</b> (mis. Baik/Cukup/Kurang), <b>centang</b>, atau <b>nilai</b>. Diisi wali kelas/admin di menu <b>Isi Raport</b>.</div>
+      <div id="jr-tree"></div>
+      <button type="button" class="btn btn-secondary btn-sm" id="jr-tree-tambah">+ Tambah Bagian</button>
       <h4 class="jr-sub">Format tampilan raport</h4>
       <div class="field"><select id="jr-engine"><option value="bawaan" ${d.engine !== "docs" ? "selected" : ""}>Format bawaan aplikasi</option><option value="docs" ${d.engine === "docs" ? "selected" : ""}>Template Google Docs (bisa diedit seperti Word)</option></select></div>
       <div id="jr-docs-wrap">
@@ -877,10 +928,10 @@ function bukaEditorJenisRaport(jr, lembaga, container) {
           <button type="button" class="btn btn-secondary btn-sm" id="jr-buat" ${baru ? "disabled" : ""}>Buat template dari format bawaan</button>
           <button type="button" class="btn btn-secondary btn-sm" id="jr-buka">Buka di Google Docs</button>
           <button type="button" class="btn btn-secondary btn-sm" id="jr-pindai">Periksa penanda</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="jr-katalog">Daftar penanda</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="jr-katalog">Daftar kode penanda</button>
         </div>
         ${baru ? `<div class="text-muted text-sm mt-1">Simpan dulu jenis raport ini, lalu buka lagi untuk membuat template dari format bawaan.</div>` : ""}
-        <div class="text-muted text-sm mt-1">Cara: <b>1)</b> buat template → <b>2)</b> edit tampilan di Google Docs (huruf, tabel, logo, margin) tanpa mengubah tulisan di dalam <code>{{ }}</code> → <b>3)</b> kembali ke sini, pilih "Template Google Docs", <b>Periksa penanda</b>, lalu Simpan. Bila template bermasalah, raport otomatis memakai format bawaan.</div>
+        <div class="text-muted text-sm mt-1">Cara: <b>1)</b> buat template → <b>2)</b> edit tampilan di Google Docs tanpa mengubah tulisan di dalam <code>{{ }}</code> → <b>3)</b> kembali ke sini, pilih "Template Google Docs", <b>Periksa penanda</b>, lalu Simpan. Klik <b>Daftar kode penanda</b> untuk melihat semua kode (tiap butir punya kode sendiri) dan klik sebuah kode untuk menyalinnya. Bila template bermasalah, raport otomatis memakai format bawaan.</div>
         <div id="jr-info" class="mt-1"></div>
       </div>
       <div class="field mt-1"><label>Status</label><select id="jr-status"><option value="aktif" ${d.status !== "nonaktif" ? "selected" : ""}>Aktif (dapat dipakai)</option><option value="nonaktif" ${d.status === "nonaktif" ? "selected" : ""}>Nonaktif (disembunyikan)</option></select></div>
@@ -893,6 +944,58 @@ function bukaEditorJenisRaport(jr, lembaga, container) {
   const atur = () => { el("jr-docs-wrap").style.display = el("jr-engine").value === "docs" ? "block" : "none"; };
   el("jr-engine").addEventListener("change", atur); atur();
 
+  // ---- editor skala predikat
+  const gambarSkala = () => {
+    el("jr-skala").innerHTML = skala.map((s, i) => `
+      <div class="komp-baris">
+        <input type="number" data-i="${i}" data-f="min" value="${esc(s.min)}" min="0" max="100" style="max-width:76px;" aria-label="Batas nilai">
+        <input type="text" data-i="${i}" data-f="label" value="${esc(s.label)}" maxlength="30" dir="auto" class="${/[\u0600-\u06FF]/.test(String(s.label)) ? "arab" : ""}" placeholder="Predikat (A / ممتاز)" style="max-width:150px;">
+        <input type="text" data-i="${i}" data-f="ket" value="${esc(s.ket || "")}" maxlength="60" placeholder="Keterangan (opsional)">
+        <button type="button" class="btn btn-danger btn-sm" data-aksi="hapus" data-i="${i}">✕</button>
+      </div>`).join("");
+  };
+  gambarSkala();
+  el("jr-skala").addEventListener("input", (e) => { const t = e.target; if (t && t.dataset && t.dataset.f !== undefined && skala[Number(t.dataset.i)]) skala[Number(t.dataset.i)][t.dataset.f] = t.value; });
+  el("jr-skala").addEventListener("click", (e) => { const t = e.target && e.target.closest ? e.target.closest("[data-aksi]") : null; if (t && t.dataset.aksi === "hapus") { skala.splice(Number(t.dataset.i), 1); gambarSkala(); } });
+  el("jr-skala-tambah").addEventListener("click", () => { skala.push({ min: 0, label: "", ket: "" }); gambarSkala(); });
+  el("jr-skala-bawaan").addEventListener("click", () => { skala = SKALA_BAWAAN.map(x => Object.assign({}, x)); gambarSkala(); });
+  el("jr-skala-arab").addEventListener("click", () => { skala = SKALA_ARAB.map(x => Object.assign({}, x)); gambarSkala(); });
+
+  // ---- editor bagian tambahan (bagian > sub > uraian)
+  const gambarPohon = () => {
+    const tipeOpsi = (t) => [["kategori", "Kategori (mis. Baik/Cukup/Kurang)"], ["centang", "Centang"], ["nilai", "Nilai 0–100"]].map(([k, l]) => `<option value="${k}" ${t === k ? "selected" : ""}>${l}</option>`).join("");
+    el("jr-tree").innerHTML = bagian.length === 0 ? `<div class="text-muted text-sm">Belum ada bagian tambahan.</div>` : bagian.map((b, i) => `
+      <div class="tb-bagian">
+        <div class="tb-baris"><input type="text" data-p="${i}" data-f="judul" value="${esc(b.judul)}" placeholder="Judul bagian (mis. Sikap dan Kepribadian)" maxlength="80">
+          <select data-p="${i}" data-f="tipe" aria-label="Bentuk penilaian">${tipeOpsi(b.tipe)}</select>
+          <button type="button" class="btn btn-danger btn-sm" data-aksi="hapus" data-p="${i}">✕</button></div>
+        ${b.tipe === "kategori" ? `<input type="text" data-p="${i}" data-f="_pil" value="${esc(b._pil)}" placeholder="Pilihan dipisah koma (mis. Baik, Cukup, Kurang)" class="tb-pil">` : ""}
+        ${(b.anak || []).map((sb, j) => `
+          <div class="tb-sub"><div class="tb-baris tb-l2"><input type="text" data-p="${i}.${j}" data-f="judul" value="${esc(sb.judul)}" placeholder="Sub bagian / uraian (mis. Sopan Santun)" maxlength="80">
+            <button type="button" class="btn btn-secondary btn-sm" data-aksi="tambah" data-p="${i}.${j}">+ Uraian</button>
+            <button type="button" class="btn btn-danger btn-sm" data-aksi="hapus" data-p="${i}.${j}">✕</button></div>
+            ${(sb.anak || []).map((u, k) => `<div class="tb-baris tb-l3"><input type="text" data-p="${i}.${j}.${k}" data-f="judul" value="${esc(u.judul)}" placeholder="Uraian (mis. Sikap terhadap guru)" maxlength="80"><button type="button" class="btn btn-danger btn-sm" data-aksi="hapus" data-p="${i}.${j}.${k}">✕</button></div>`).join("")}
+          </div>`).join("")}
+        <button type="button" class="btn btn-secondary btn-sm" data-aksi="tambah" data-p="${i}">+ Sub bagian / uraian</button>
+      </div>`).join("");
+  };
+  gambarPohon();
+  el("jr-tree").addEventListener("input", (e) => {
+    const t = e.target; if (!t || !t.dataset || t.dataset.f === undefined) return;
+    const { n } = simpul(t.dataset.p); if (!n) return;
+    n[t.dataset.f] = t.value;
+    if (t.dataset.f === "tipe") gambarPohon();
+  });
+  el("jr-tree").addEventListener("click", (e) => {
+    const t = e.target && e.target.closest ? e.target.closest("[data-aksi]") : null; if (!t) return;
+    const { p, n } = simpul(t.dataset.p); if (!n) return;
+    if (t.dataset.aksi === "tambah") { (n.anak = n.anak || []).push({ judul: "", anak: [] }); }
+    else if (t.dataset.aksi === "hapus") { if (p.length === 1) bagian.splice(p[0], 1); else { const induk = simpul(p.slice(0, -1).join(".")).n; induk.anak.splice(p[p.length - 1], 1); } }
+    gambarPohon();
+  });
+  el("jr-tree-tambah").addEventListener("click", () => { bagian.push({ judul: "", tipe: "kategori", _pil: "Baik, Cukup, Kurang", anak: [] }); gambarPohon(); });
+
+  // ---- template Google Docs
   el("jr-buka").addEventListener("click", () => {
     const u = el("jr-url").value.trim();
     if (!u) { info(`<div class="alert alert-error">Belum ada tautan template.</div>`); return; }
@@ -904,14 +1007,14 @@ function bukaEditorJenisRaport(jr, lembaga, container) {
     try {
       const h = await Api.call("jenisraport.buatTemplate", { id: jr.id });
       el("jr-url").value = h.url; el("jr-engine").value = "docs"; atur();
-      info(`<div class="alert alert-success">Template dibuat. <a href="${esc(h.url)}" target="_blank" rel="noopener"><b>Buka &amp; edit di Google Docs</b></a>. Setelah selesai mengedit, klik Simpan.</div>`);
+      info(`<div class="alert alert-success">Template dibuat sesuai pengaturan raport ini (komponen, bab, kehadiran, bagian tambahan). <a href="${esc(h.url)}" target="_blank" rel="noopener"><b>Buka &amp; edit di Google Docs</b></a>. Setelah selesai mengedit, klik Simpan.</div>`);
     } catch (err) { info(`<div class="alert alert-error">${esc(err.message)}</div>`); }
     buat.disabled = false;
   });
   el("jr-pindai").addEventListener("click", async () => {
     info(`<div class="loading">Memeriksa dokumen...</div>`);
     try {
-      const h = await Api.call("jenisraport.pindai", { template_url: el("jr-url").value.trim(), sumber: el("jr-sumber").value });
+      const h = await Api.call("jenisraport.pindai", { template_url: el("jr-url").value.trim(), sumber: el("jr-sumber").value, id: jr ? jr.id : undefined });
       info(`<div class="alert ${h.tidak_dikenal.length ? "alert-error" : "alert-success"}">
         <b>${esc(h.judul)}</b><br>${h.ditemukan.length} penanda dikenali${h.tidak_dikenal.length ? `, <b>${h.tidak_dikenal.length} tidak dikenal</b> (akan dikosongkan): ${h.tidak_dikenal.map(x => `<code>${esc(x)}</code>`).join(" ")}` : " — semua penanda valid"}.
         ${h.blok_hilang.length ? `<br>Perhatian: tabel data belum memakai blok ${h.blok_hilang.map(x => `<code>{{#${esc(x)}}}</code>`).join(", ")}.` : ""}</div>`);
@@ -919,18 +1022,29 @@ function bukaEditorJenisRaport(jr, lembaga, container) {
   });
   el("jr-katalog").addEventListener("click", async () => {
     try {
-      const k = await Api.call("jenisraport.katalog", { sumber: el("jr-sumber").value });
-      const blok = Object.keys(k.blok).map(b => `<div class="mt-1"><b>Tabel berulang</b> (letakkan <code>{{#${b}}}</code> di awal baris templat): ${k.blok[b].map(c => `<code>{{${b}.${c}}}</code>`).join(" ")}</div>`).join("");
-      info(`<div class="katalog-penanda"><b>Penanda tunggal</b> (ketik persis di Google Docs): ${k.skalar.map(x => `<code>{{${x}}}</code>`).join(" ")}${blok}
-        <div class="mt-1 text-muted text-sm">Pengubah: <code>{{NAMA_SANTRI | kapital}}</code> <code>| kecil</code> <code>| judul</code> <code>| bawaan:-</code> <code>| tanggal</code> <code>| ribuan</code>. Baris tabel/paragraf yang memuat penanda peringkat otomatis dihapus bila opsinya dimatikan. <code>{{?KUNCI}}</code> di awal baris/paragraf menyembunyikannya bila nilainya kosong. Gambar: <code>{{KOP}}</code> <code>{{KOP_SEKOLAH}}</code> <code>{{KOP_YAYASAN}}</code> <code>{{FOTO_SANTRI}}</code>.</div></div>`);
+      const k = await Api.call("jenisraport.katalog", { sumber: el("jr-sumber").value, id: jr ? jr.id : undefined });
+      const blok = Object.keys(k.blok).map(b => `<div class="kat-grup"><b>Tabel berulang ${b}</b> — letakkan <code data-salin="{{#${b}}}">{{#${b}}}</code> di awal baris templat, kolom:<div>${k.blok[b].map(c => `<code data-salin="{{${b}.${c}}}">{{${b}.${c}}}</code>`).join(" ")}</div></div>`).join("");
+      const grup = (k.grup || []).map(g => `<div class="kat-grup"><b>${esc(g.judul)}</b><div>${g.isi.map(x => `<code data-salin="{{${x}}}">{{${x}}}</code>`).join(" ")}</div></div>`).join("");
+      info(`<div class="katalog-penanda"><div class="text-muted text-sm">Klik sebuah kode untuk menyalinnya, lalu tempel di Google Docs.</div>${grup}${blok}
+        <div class="kat-grup text-muted text-sm">Pengubah: <code>{{NAMA_SANTRI | kapital}}</code> <code>| kecil</code> <code>| judul</code> <code>| bawaan:-</code> <code>| tanggal</code> <code>| ribuan</code> <code>| terbilang</code>. Baris tabel/paragraf yang memuat penanda yang dimatikan (peringkat, kehadiran, catatan) otomatis dihapus. <code>{{?KUNCI}}</code> di awal baris/paragraf menyembunyikannya bila nilainya kosong.</div></div>`);
     } catch (err) { info(`<div class="alert alert-error">${esc(err.message)}</div>`); }
   });
+  el("jr-info").addEventListener("click", async (e) => {
+    const t = e.target && e.target.closest ? e.target.closest("[data-salin]") : null; if (!t) return;
+    try { await navigator.clipboard.writeText(t.dataset.salin); t.classList.add("tersalin"); } catch (x) { window.prompt && window.prompt("Salin kode ini:", t.dataset.salin); }
+  });
+
   el("jr-simpan").addEventListener("click", async (e) => {
     const data = {
       id: jr ? jr.id : undefined, nama: el("jr-nama").value, id_lembaga: el("jr-lembaga").value, sumber: el("jr-sumber").value, judul: el("jr-judul").value,
+      tanggal_cetak_mode: el("jr-tgl-mode").value, tanggal_cetak: el("jr-tgl").value,
       jabatan_pengasuh: el("jr-jab-pengasuh").value, jabatan_kepsek: el("jr-jab-kepsek").value, jabatan_wali: el("jr-jab-wali").value,
       nama_pengasuh: el("jr-nama-pengasuh").value, nama_kepsek: el("jr-nama-kepsek").value, nip_kepsek: el("jr-nip-kepsek").value,
       peringkat_kelas: el("jr-p-kelas").checked ? "ya" : "tidak", peringkat_paralel: el("jr-p-paralel").checked ? "ya" : "tidak",
+      peringkat_kelas_maks: el("jr-maks-kelas").value, peringkat_paralel_maks: el("jr-maks-paralel").value,
+      skala_predikat: skala.filter(s => String(s.label).trim() !== "").map(s => ({ min: Number(s.min), label: s.label, ket: s.ket })),
+      terbilang: el("jr-terbilang").value, tampil_bab: el("jr-bab").checked ? "ya" : "tidak", tampil_kehadiran: el("jr-kehadiran").checked ? "ya" : "tidak", tampil_catatan: el("jr-catatan").checked ? "ya" : "tidak",
+      bagian_tambahan: bagian.map(b => petaKeServer(b, 1)),
       engine: el("jr-engine").value, template_url: el("jr-url").value.trim(), status: el("jr-status").value
     };
     e.target.disabled = true;
@@ -938,3 +1052,113 @@ function bukaEditorJenisRaport(jr, lembaga, container) {
     catch (err) { pesan(false, err.message); e.target.disabled = false; }
   });
 }
+
+// ======================= ISI RAPORT (wali kelas / admin): kehadiran, catatan, bagian tambahan =======================
+
+Router.add("isiraport", async (root) => {
+  root.innerHTML = Shell("isiraport", `<div class="loading">Memuat...</div>`);
+  const main = document.querySelector("main.content");
+  const profil = Auth.getProfil();
+  const guru = profil.peran === "guru_mapel" || profil.peran === "pengajar_tpq";
+  const csv = (s) => String(s || "").split(",").map(x => x.trim()).filter(Boolean);
+  const el = (id) => document.getElementById(id);
+  try {
+    const [kelasRes, kelompokRes, lembagaRes, jenisRes, santriRes, peng] = await Promise.all([Ref.kelas(), Ref.kelompok(), Ref.lembaga(), Ref.jenisRaport(), Ref.santriSemua(), Ref.pengaturan()]);
+    const lembaga = lembagaRes.items || [];
+    const jenisList = (jenisRes.items || []).filter(j => j.status !== "nonaktif").filter(j => !guru || (j.jenis_lembaga === "tpq" ? csv(profil.kelompok_diampu).length > 0 : csv(profil.kelas_diampu).length > 0));
+    const santriAktif = (santriRes.items || []).filter(s => s.status === "aktif");
+    if (jenisList.length === 0) { main.innerHTML = `<div class="card"><div class="empty-state">Belum ada jenis raport yang dapat Anda isi.</div></div>`; return; }
+    main.innerHTML = `
+      <div class="card">
+        <h3>Isi Raport</h3>
+        <div class="text-muted text-sm mb-1">Isi <b>kehadiran</b> (otomatis dari presensi atau manual), <b>catatan wali kelas</b>, dan <b>bagian tambahan</b> (mis. sikap &amp; kepribadian) per santri. Hanya wali kelas santri tersebut (atau pengajar kelompok) dan admin yang dapat menyimpan.</div>
+        <div class="field"><label>Jenis Raport</label><select id="ir-jenis">${jenisList.map(j => `<option value="${esc(j.id)}">${esc(j.nama)} (${esc(j.nama_lembaga)})</option>`).join("")}</select></div>
+        <div class="grid-2"><div class="field"><label id="ir-label-grup">Kelas</label><select id="ir-kelas"></select></div><div class="field"><label>Santri</label><select id="ir-santri"></select></div></div>
+        <div class="grid-2">
+          <div class="field"><label>Semester</label><select id="ir-semester"><option ${peng.semester_aktif === "Ganjil" ? "selected" : ""}>Ganjil</option><option ${peng.semester_aktif === "Genap" ? "selected" : ""}>Genap</option></select></div>
+          <div class="field"><label>Tahun Ajaran</label><input type="text" id="ir-tahun" value="${esc(peng.tahun_ajaran)}"></div>
+        </div>
+        <button class="btn btn-primary btn-block" id="ir-muat">Muat Isian</button>
+      </div>
+      <div id="ir-form"></div>`;
+    const jenisTerpilih = () => jenisList.find(j => j.id === el("ir-jenis").value) || jenisList[0];
+    function isiSantri() {
+      const tpq = jenisTerpilih().jenis_lembaga === "tpq", bidang = tpq ? "id_kelompok" : "id_kelas";
+      el("ir-santri").innerHTML = santriAktif.filter(s => String(s[bidang]) === String(el("ir-kelas").value)).sort((a, b) => String(a.nama).localeCompare(String(b.nama))).map(s => `<option value="${esc(s.id)}">${esc(s.nama)}</option>`).join("");
+    }
+    function isiGrup() {
+      const j = jenisTerpilih(), tpq = j.jenis_lembaga === "tpq";
+      el("ir-label-grup").textContent = tpq ? "Kelompok" : "Kelas";
+      const diampu = csv(tpq ? profil.kelompok_diampu : profil.kelas_diampu);
+      const daftar = (tpq ? (kelompokRes.items || []) : (kelasRes.items || [])).filter(g => lembagaGrup(lembaga, g, tpq ? "kelompok" : "kelas") === String(j.id_lembaga) && (!guru || diampu.indexOf(g.id) !== -1));
+      el("ir-kelas").innerHTML = daftar.length === 0 ? `<option value="">(belum ada)</option>` : daftar.map(g => `<option value="${esc(g.id)}">${esc(tpq ? g.nama_kelompok : g.nama_kelas)}</option>`).join("");
+      isiSantri();
+    }
+    el("ir-jenis").addEventListener("change", () => { isiGrup(); el("ir-form").innerHTML = ""; });
+    el("ir-kelas").addEventListener("change", isiSantri);
+    isiGrup();
+
+    let st = null, butir = [];
+    const nilaiTampil = (b) => {
+      const v = st.tambahan[b.kunci] === undefined ? "" : st.tambahan[b.kunci];
+      if (b.tipe === "kategori") return `<select data-k="${esc(b.kunci)}"><option value="">-</option>${b.pilihan.map(p => `<option ${v === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>`;
+      if (b.tipe === "centang") return `<label class="ir-cek"><input type="checkbox" data-k="${esc(b.kunci)}" ${v === "ya" ? "checked" : ""}> Ya</label>`;
+      return `<input type="number" min="0" max="100" step="0.1" data-k="${esc(b.kunci)}" value="${esc(v)}" style="max-width:100px;">`;
+    };
+    function gambarForm(boleh) {
+      const oto = st.otomatis;
+      let bagian = "", sub = "", cur = "";
+      butir.forEach(b => {
+        if (b.bagian_kode !== cur) { cur = b.bagian_kode; sub = ""; bagian += `<h4 class="jr-sub">${esc(b.bagian)}${b.tipe === "kategori" ? ` <span class="text-muted text-sm">(${b.pilihan.map(esc).join(" / ")})</span>` : ""}</h4>`; }
+        if (b.sub && b.sub !== sub) { sub = b.sub; bagian += `<div class="ir-sub">${esc(b.sub)}</div>`; }
+        bagian += `<div class="ir-butir"><span>${esc(b.uraian)}</span>${nilaiTampil(b)}</div>`;
+      });
+      el("ir-form").innerHTML = `
+        ${boleh ? "" : `<div class="alert alert-error">Anda hanya dapat melihat. Yang boleh mengisi: wali kelas santri ini (atau pengajar kelompok) dan admin.</div>`}
+        <div class="card"><h3>Kehadiran</h3>
+          <div class="field"><label>Sumber data kehadiran</label><select data-f="mode" ${boleh ? "" : "disabled"}><option value="otomatis" ${st.mode === "otomatis" ? "selected" : ""}>Otomatis dari presensi</option><option value="manual" ${st.mode === "manual" ? "selected" : ""}>Isi manual</option></select></div>
+          ${st.mode === "otomatis" ? `<div class="text-sm">Otomatis: Hadir <b>${oto.hadir}</b> · Sakit <b>${oto.sakit}</b> · Izin <b>${oto.izin}</b> · Alpa <b>${oto.alpa}</b> hari (periode semester ini).</div>` : `
+          <div class="grid-2" style="grid-template-columns:repeat(2,1fr);">${[["hadir", "Hadir"], ["sakit", "Sakit"], ["izin", "Izin"], ["alpa", "Alpa"]].map(([k, l]) => `<div class="field"><label>${l} (hari)</label><input type="number" min="0" max="366" data-f="${k}" value="${esc(st[k])}" ${boleh ? "" : "disabled"}></div>`).join("")}</div>
+          <div class="text-muted text-sm">Angka otomatis sebagai pembanding: Hadir ${oto.hadir}, Sakit ${oto.sakit}, Izin ${oto.izin}, Alpa ${oto.alpa}.</div>`}
+        </div>
+        <div class="card"><h3>Catatan Wali Kelas</h3><div class="field"><textarea rows="4" maxlength="1000" data-f="catatan" placeholder="Catatan hasil keseluruhan penilaian santri" ${boleh ? "" : "disabled"}>${esc(st.catatan)}</textarea></div></div>
+        ${butir.length ? `<div class="card"><h3>Bagian Tambahan</h3>${bagian}</div>` : ""}
+        ${boleh ? `<button class="btn btn-primary btn-block" id="ir-simpan">Simpan</button><div id="ir-pesan" class="mt-1"></div>` : ""}`;
+      const btn = el("ir-simpan");
+      if (btn) btn.addEventListener("click", simpan);
+    }
+    async function simpan() {
+      const btn = el("ir-simpan"), pesan = el("ir-pesan");
+      btn.disabled = true; pesan.innerHTML = "";
+      try {
+        await Api.call("isiraport.simpan", { id_santri: el("ir-santri").value, jenis_raport_id: el("ir-jenis").value, semester: el("ir-semester").value, tahun_ajaran: el("ir-tahun").value.trim(),
+          kehadiran_mode: st.mode, hadir: st.hadir, sakit: st.sakit, izin: st.izin, alpa: st.alpa, catatan_walas: st.catatan, tambahan: st.tambahan });
+        pesan.innerHTML = `<div class="alert alert-success">Tersimpan. Isian ini langsung tampil di raport.</div>`;
+      } catch (err) { pesan.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+      btn.disabled = false;
+    }
+    el("ir-form").addEventListener("input", (e) => {
+      const t = e.target; if (!t || !t.dataset) return;
+      if (t.dataset.k !== undefined) st.tambahan[t.dataset.k] = (t.type === "checkbox") ? (t.checked ? "ya" : "tidak") : t.value;
+      else if (t.dataset.f !== undefined && t.dataset.f !== "mode") st[t.dataset.f] = t.value;
+    });
+    el("ir-form").addEventListener("change", (e) => {
+      const t = e.target; if (!t || !t.dataset) return;
+      if (t.dataset.f === "mode") { st.mode = t.value; gambarForm(st.boleh); }
+      else if (t.dataset.k !== undefined) st.tambahan[t.dataset.k] = (t.type === "checkbox") ? (t.checked ? "ya" : "tidak") : t.value;
+    });
+    el("ir-muat").addEventListener("click", async () => {
+      const idSantri = el("ir-santri").value;
+      if (!idSantri) { el("ir-form").innerHTML = `<div class="alert alert-error">Pilih santri dulu.</div>`; return; }
+      el("ir-form").innerHTML = `<div class="loading">Memuat isian...</div>`;
+      try {
+        const d = await Api.call("isiraport.get", { id_santri: idSantri, jenis_raport_id: el("ir-jenis").value, semester: el("ir-semester").value, tahun_ajaran: el("ir-tahun").value.trim() });
+        butir = d.butir || [];
+        st = { mode: d.kehadiran.mode, hadir: d.kehadiran.hadir, sakit: d.kehadiran.sakit, izin: d.kehadiran.izin, alpa: d.kehadiran.alpa, otomatis: d.kehadiran.otomatis, catatan: d.catatan_walas || "", tambahan: {}, boleh: d.boleh_edit };
+        butir.forEach(b => { st.tambahan[b.kunci] = b.nilai; });
+        gambarForm(d.boleh_edit);
+      } catch (err) { tampilkanGalat(el("ir-form"), err); }
+    });
+  } catch (err) { tampilkanGalat(main, err); }
+});
+
